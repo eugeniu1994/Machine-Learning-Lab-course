@@ -9,6 +9,17 @@ Implementation is done and tested.
 
 Application part:
 
+
+
+
+
+
+
+Notes:
+--> Assignment 1: - Now the initial centroids are initialized at random data points from X.
+                  - Loss value calculated according to the handbook (P.21)
+		  - Handle possible empty clusters: if a cluster is empty, the centroid is reinitialized at some  
+		    random data point from X.
 	
 
 
