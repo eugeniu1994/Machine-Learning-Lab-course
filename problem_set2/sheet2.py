@@ -44,8 +44,7 @@ def kmeans(X, k, max_iter=100):
         for i in range(k):
             mu[i] = np.mean(X[r == i], axis=0)
 
-        #loss = np.linalg.norm(mu - mu_old)
-        loss = distances.sum()
+        loss = distances.sum() #for sum of euclidean distances to cluster centers
         #print('Iterations: {},  Loss:{}'.format(j, loss))
 
     if plot:
@@ -53,10 +52,6 @@ def kmeans(X, k, max_iter=100):
             plt.scatter(X[i, 0], X[i, 1], s=100, c='b')
         plt.scatter(mu[:, 0], mu[:, 1], marker='*', c='g', s=150)
         plt.show()
-
-    #print('mu: ', np.shape(mu))
-    #print('r: ',r)
-    #print('loss  = {}'.format(loss))
 
     return mu, r, loss
 
@@ -88,54 +83,44 @@ def kmeans_agglo(X, r):
 
     n, d = np.shape(X)
     labels = range(n)
+    #plotting the data with labels
     plt.figure(figsize=(6, 6))
     plt.scatter(X[:, 0], X[:, 1],)
     for label, x, y in zip(labels, X[:, 0], X[:, 1]):
-        plt.annotate(
-            label,
-            xy=(x, y), xytext=(-3, 3),
-            textcoords='offset points', ha='right', va='bottom')
+        plt.annotate(label,xy=(x, y), xytext=(-3, 3),textcoords='offset points', ha='right', va='bottom')
     plt.show()
 
-    #r = [i for i in range(X.shape[0])]
+    r = [i for i in range(X.shape[0])] #this is just for test, comment this line, to get the r from parameters
     print('r ',r)
     _k = len(np.unique(r))  # number of different values  i.e. clusters
     print('There are {} clusters'.format(_k))
     centroids = np.zeros((_k, d))
     r = np.array(r)
     R, kmloss, mergeidx = [], [], []
-    #R.append(r)
+    R.append(r)
     for i in range(_k):
-        #centroids[i] = np.mean(X[i], axis=0)
         centroids[i] = np.mean(X[r == i], axis=0)
     print('centroids ', np.shape(centroids))
     kmloss.append(cdist(X, centroids, 'euclidean').sum())
     m = len(centroids)
-    print('m ', m)
     while (m > 1):
-        print('Before clustering  ', m)
-        print('centroids ', np.shape(centroids))
+        print('Before clustering  {} clusters'.format(m))
+        print('Centroids: ', np.shape(centroids))
         distance_matrix = cdist(centroids, centroids, 'euclidean')
         print('distance_matrix ', np.shape(distance_matrix))
-        np.fill_diagonal(distance_matrix, np.inf)
-        #print(np.diag(distance_matrix))
-        #print('Min value = ',distance_matrix.min())
+        np.fill_diagonal(distance_matrix, np.inf) #fill diagonal with infinity, in order to get the min value (before zero filling, diagonal is zero)
         min_idx = np.where(distance_matrix == distance_matrix.min())[0] #x index where min value
         print('min_idx ', np.shape(min_idx))
-        print(min_idx)
+        print('Indices that correspond to min value ',min_idx)
         u = np.unique(r)
-        for i in range(int(len(min_idx)/2)):
-            #i=0
-            val1 = u[min_idx[int(2*i)]]
-            val2 = u[min_idx[int(2 * i+1)]]
-            r[np.where(r == val2)] = val1
-            #mergeidx.append([min_idx[int(2*i)],min_idx[int(2 * i+1)]])
-            mergeidx.append([val1, val2])
-            print('mergeidx ', np.shape(mergeidx))
-            kmloss.append(cdist(X, centroids, 'euclidean').sum())
-            print('r ' ,r)
-            R.append(r)
-            print('R {}-'.format(np.shape(R)))
+        #for i in range(int(len(min_idx)/2)):
+        i=0
+        val1 = u[min_idx[int(2*i)]]
+        val2 = u[min_idx[int(2 * i+1)]]
+        r[np.where(r == val2)] = val1
+        mergeidx.append([val1, val2]) #save merged indexes
+        R.append(r) #save current assignment vector
+
         _k = len(np.unique(r))  # number of different values  i.e. clusters
         print('There are {} clusters'.format(_k))
         centroids = np.zeros((_k, d))
@@ -144,22 +129,26 @@ def kmeans_agglo(X, r):
         for i in np.unique(r):
             centroids[j] = np.mean(X[r == i], axis=0)
             j+=1
-        print('centroids ', np.shape(centroids))
+        print('Centroids: ', np.shape(centroids))
+        kmloss.append(cdist(X, centroids, 'euclidean').sum())  # save distance loss
         m = len(centroids)
-
         print('Current r: ', r)
-        print('Sample size ', m)
+        print('Current m: ', m)
         print('\n')
 
-    import scipy.cluster.hierarchy as shc
+    #this is just to check the scipy result
+    '''import scipy.cluster.hierarchy as shc
     plt.figure(figsize=(8, 8))
     plt.title('Visualising the data')
     Z = shc.linkage(X, method='ward')
     print('Z shape is ', np.shape(Z))
     Dendrogram = dendrogram((Z))
-    plt.show()
+    plt.show()'''
 
-    print('kmloss now ',np.shape(kmloss))
+    print('R  ', np.shape(R))
+    print('kmloss  ',np.shape(kmloss))
+    print('mergeidx  ', np.shape(mergeidx))
+
     return R, kmloss, mergeidx
 
 #Assignment 3
@@ -169,48 +158,45 @@ def agglo_dendro(kmloss, mergeidx):
     kmloss: vector with loss after each step
     mergeidx: (k-1) x 2 matrix that contains merge idx for each step
     """
-    print('----------------------------------------------------------')
-    print('kmloss ', np.shape(kmloss))
-    print('mergeidx ', np.shape(mergeidx))
-
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
-    for i in range(len(mergeidx)):
-        ax.scatter(i,0, c='k')
-        kmloss[i]*=0.1
-
+    verbose = True
     kmloss = kmloss[::-1]
     print(kmloss)
-    prevY1=prevY2=0
-    tmp=[]
-    mid1=mid2 = 0
-    for i in range(3): #len(mergeidx)
-        d = mergeidx[i]
-        print(d)
-        if d[0] in tmp:
-            mid1 = (mergeidx[i][0] + mergeidx[i][1]) / 2.0
-            mid2 = (mergeidx[i + 1][0] + mergeidx[i + 1][1]) / 2.0
-            x = [mid1, mid1,mid2,mid2]
-            print('Inside mid1 :{},  mid2: {}'.format(mid1,mid2))
-        else:
-            x = [d[0], d[0], d[1], d[1]]
-            prevY2 = kmloss[i+1]
-            prevY1 = 0
+    print('level loses', np.shape(kmloss))
+    print('merged indexes \n',mergeidx)
 
+    def helper(x0,x1,y0,y1,next_loss):
+        return ([[x0,x0,x1,x1],[y0,next_loss,next_loss,y1]]), [(x0+x1)/2.0,next_loss]
 
+    MyDict = {}
+    keys = range(len(kmloss))
+    fig, ax = plt.subplots()
+    for i in keys:
+        ax.scatter(i, 0, c='k')
+        MyDict[i] = dict({'label': str(i), 'x': i, 'y': 0})
+    #print(MyDict)
+    for i,(next_level,(c1,c2)) in enumerate(zip(kmloss,mergeidx)):
+        x0, y0 = MyDict[c1]['x'], MyDict[c1]['y']
+        x1, y1 = MyDict[c2]['x'], MyDict[c2]['y']
 
-        y = [prevY1, prevY2,prevY2,prevY1]
-        tmp.append(d[0])
-        tmp.append(d[1])
+        if verbose:
+            print('Iteration: {}, Clusters: ({},{}) current level loss:{}'.format(i,c1,c2,next_level))
+            print('Merged clusters: c{}:({},{}) & c{}:({},{})'.format(c1,x0,y0,c2,x1,y1))
 
-        line = Line2D(x, y, c='r')
-        ax.add_line(line)
+        line, center = helper(x0, x1, y0, y1, next_level)
+        ax.plot(*line)
+        ax.scatter(*center)
 
-    #print()
-    ax.set_ylim(-5, 500)
-    #ax.set_ylim(-10, max(kmloss))
+        if verbose:
+            print('New centroid is {}, change the map[{}]:{}'.format(center,c1,MyDict[c1]))
+
+        MyDict[c1]['x'] = center[0]
+        MyDict[c1]['y'] = center[1]
+        MyDict[c1]['label'] = '({0},{1})'.format(MyDict[c1]['label'], MyDict[c2]['label'])
+
+        ax.text(*center, MyDict[c1]['label']) #plot label to new cluster
+
+    ax.set_ylim(-10, 1.2 * np.max(kmloss))
     plt.show()
-
 
 #Assignment 4
 def norm_pdf(X, mu, C):
@@ -354,4 +340,3 @@ def plot_gmm_solution(X, mu, sigma):
 if __name__ == '__main__':
     #norm_pdf(0,0,0)
     print('main')
-
