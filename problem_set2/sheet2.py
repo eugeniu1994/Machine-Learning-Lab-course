@@ -5,6 +5,7 @@ from scipy.spatial.distance import cdist  # fast distance matrices
 from scipy.cluster.hierarchy import dendrogram  # you can use this
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D  # for when you create your own dendrogram
+import scipy.io as spio          #used to lod .mat dataset
 
 #np.random.seed(2020)
 
@@ -26,7 +27,7 @@ def kmeans(X, k, max_iter=100):
     mu_old = np.zeros(mu.shape)  # store old centroids
     r = np.zeros(n)
     r_prim = np.zeros(n)
-    loss = np.linalg.norm(mu - mu_old)
+    loss = cdist(X, mu, 'euclidean').sum() # np.linalg.norm(mu - mu_old)
 
     plot = False
     for j in range(max_iter):
@@ -56,7 +57,7 @@ def kmeans(X, k, max_iter=100):
     return mu, r, loss
 
 #Assignment 2
-def kmeans_agglo(X, r):
+def kmeans_agglo(X, r, verbose = False):
     """ Performs agglomerative clustering with k-means criterion
     Input:
     X: (n x d) data matrix with each datapoint in one column
@@ -84,34 +85,40 @@ def kmeans_agglo(X, r):
     n, d = np.shape(X)
     labels = range(n)
     #plotting the data with labels
-    plt.figure(figsize=(6, 6))
-    plt.scatter(X[:, 0], X[:, 1],)
-    for label, x, y in zip(labels, X[:, 0], X[:, 1]):
-        plt.annotate(label,xy=(x, y), xytext=(-3, 3),textcoords='offset points', ha='right', va='bottom')
-    plt.show()
+    if verbose:
+        plt.figure(figsize=(6, 6))
+        plt.scatter(X[:, 0], X[:, 1],)
+        for label, x, y in zip(labels, X[:, 0], X[:, 1]):
+            plt.annotate(label,xy=(x, y), xytext=(-3, 3),textcoords='offset points', ha='right', va='bottom')
+        plt.show()
 
-    r = [i for i in range(X.shape[0])] #this is just for test, comment this line, to get the r from parameters
-    print('r ',r)
+    if verbose:
+        r = [i for i in range(X.shape[0])] #this is just for test, comment this line, to get the r from parameters
+        print('r ',r)
     _k = len(np.unique(r))  # number of different values  i.e. clusters
-    print('There are {} clusters'.format(_k))
+    if verbose:
+        print('There are {} clusters'.format(_k))
     centroids = np.zeros((_k, d))
     r = np.array(r)
     R, kmloss, mergeidx = [], [], []
     R.append(r)
     for i in range(_k):
         centroids[i] = np.mean(X[r == i], axis=0)
-    print('centroids ', np.shape(centroids))
+    if verbose:
+        print('centroids ', np.shape(centroids))
     kmloss.append(cdist(X, centroids, 'euclidean').sum())
     m = len(centroids)
     while (m > 1):
-        print('Before clustering  {} clusters'.format(m))
-        print('Centroids: ', np.shape(centroids))
+        if verbose:
+            print('Before clustering  {} clusters'.format(m))
+            print('Centroids: ', np.shape(centroids))
         distance_matrix = cdist(centroids, centroids, 'euclidean')
-        print('distance_matrix ', np.shape(distance_matrix))
+        #print('distance_matrix ', np.shape(distance_matrix))
         np.fill_diagonal(distance_matrix, np.inf) #fill diagonal with infinity, in order to get the min value (before zero filling, diagonal is zero)
         min_idx = np.where(distance_matrix == distance_matrix.min())[0] #x index where min value
-        print('min_idx ', np.shape(min_idx))
-        print('Indices that correspond to min value ',min_idx)
+        if verbose:
+            print('min_idx ', np.shape(min_idx))
+            print('Indices that correspond to min value ',min_idx)
         u = np.unique(r)
         #for i in range(int(len(min_idx)/2)):
         i=0
@@ -122,19 +129,23 @@ def kmeans_agglo(X, r):
         R.append(r) #save current assignment vector
 
         _k = len(np.unique(r))  # number of different values  i.e. clusters
-        print('There are {} clusters'.format(_k))
+        if verbose:
+            print('There are {} clusters'.format(_k))
+            print('unique ',np.unique(r))
         centroids = np.zeros((_k, d))
-        print('unique ',np.unique(r))
+
         j=0
         for i in np.unique(r):
             centroids[j] = np.mean(X[r == i], axis=0)
             j+=1
-        print('Centroids: ', np.shape(centroids))
+        if verbose:
+            print('Centroids: ', np.shape(centroids))
         kmloss.append(cdist(X, centroids, 'euclidean').sum())  # save distance loss
         m = len(centroids)
-        print('Current r: ', r)
-        print('Current m: ', m)
-        print('\n')
+        if verbose:
+            print('Current r: ', r)
+            print('Current m: ', m)
+            print('\n')
 
     #this is just to check the scipy result
     '''import scipy.cluster.hierarchy as shc
@@ -145,33 +156,35 @@ def kmeans_agglo(X, r):
     Dendrogram = dendrogram((Z))
     plt.show()'''
 
-    print('R  ', np.shape(R))
-    print('kmloss  ',np.shape(kmloss))
-    print('mergeidx  ', np.shape(mergeidx))
+    if verbose:
+        print('R  ', np.shape(R))
+        print('kmloss  ',np.shape(kmloss))
+        print('mergeidx  ', np.shape(mergeidx))
 
     return R, kmloss, mergeidx
 
 #Assignment 3
-def agglo_dendro(kmloss, mergeidx):
+def agglo_dendro(kmloss, mergeidx, verbose = True, title='', ax=None):
     """ Plots dendrogram for agglomerative clustering
     Input:
     kmloss: vector with loss after each step
     mergeidx: (k-1) x 2 matrix that contains merge idx for each step
     """
-    verbose = True
     kmloss = kmloss[::-1]
-    print(kmloss)
-    print('level loses', np.shape(kmloss))
-    print('merged indexes \n',mergeidx)
+    if verbose:
+        print(kmloss)
+        print('level loses', np.shape(kmloss))
+        print('merged indexes \n',mergeidx)
 
     def helper(x0,x1,y0,y1,next_loss):
         return ([[x0,x0,x1,x1],[y0,next_loss,next_loss,y1]]), [(x0+x1)/2.0,next_loss]
 
     MyDict = {}
     keys = range(len(kmloss))
-    fig, ax = plt.subplots()
+    if ax==None:
+        fig, ax = plt.subplots()
     for i in keys:
-        ax.scatter(i, 0, c='k')
+        plt.scatter(i, 0, c='k')
         MyDict[i] = dict({'label': str(i), 'x': i, 'y': 0})
     #print(MyDict)
     for i,(next_level,(c1,c2)) in enumerate(zip(kmloss,mergeidx)):
@@ -193,9 +206,11 @@ def agglo_dendro(kmloss, mergeidx):
         MyDict[c1]['y'] = center[1]
         MyDict[c1]['label'] = '({0},{1})'.format(MyDict[c1]['label'], MyDict[c2]['label'])
 
-        ax.text(*center, MyDict[c1]['label']) #plot label to new cluster
+        if verbose:
+            ax.text(*center, MyDict[c1]['label']) #plot label to new cluster
 
     ax.set_ylim(-10, 1.2 * np.max(kmloss))
+    plt.title(title)
     plt.show()
 
 #Assignment 4
@@ -210,26 +225,26 @@ def norm_pdf(X, mu, C):
     """
 
     d = np.shape(X)[0]
+    C = C + 1e-2 * np.eye(np.shape(C)[0]) # this is added for regularization - remove later (ask tutor)
+
     C_det = np.linalg.det(C)
-    #print(C)
-    assert C_det != 0, "Determinant is zero -> Matrix is not invertible "
+    #assert C_det != 0, "Determinant is zero -> Matrix is not invertible "
     #C_inv = np.linalg.inv(C)
     C_inv = np.linalg.pinv(C)
     #C_inv = np.linalg.inv(C @ C.T + 1e-2 * np.eye(np.shape(C)[0])) #add regularization term because is not invertible
 
-    down = np.sqrt((2 * np.pi) ** d * C_det)
+    down = 1.0 #  np.sqrt((2 * np.pi) ** d * C_det) #use this ,   remove 1.0 later
     #down = ((2 * np.pi) ** d/2) * np.sqrt(C_det)
 
     #  einsum (x-mu)T.Sigma-1.(x-mu)
-    up = -np.einsum('...i,ij,...j->...', X - mu, C_inv, X - mu)/2
+    up = 1.0 # -np.einsum('...i,ij,...j->...', X - mu, C_inv, X - mu)/2   #use this
 
-    if down == 0 or C_det==0:
-        print('C_det is {} and down is {}'.format(C_det, down))
+    #if down == 0 or C_det==0:
+    #    print('C_det is {} and down is {}'.format(C_det, down))
     pdf = np.exp(up) / down
 
-    #from scipy.stats import multivariate_normal
-    #C = C + 1e-2 * np.eye(np.shape(C)[0])
-    #pdf = multivariate_normal.pdf(X, mean=mu, cov=C)
+    from scipy.stats import multivariate_normal  # this is just for test now, remove it later and use the code provided above
+    pdf = multivariate_normal.pdf(X, mean=mu, cov=C)
 
     return pdf
 
@@ -301,7 +316,7 @@ def em_gmm(X, k, max_iter=100, init_kmeans=False, eps=1e-3):
     return mpi, mu, sigma, logLik
 
 #Assignment 6
-def plot_gmm_solution(X, mu, sigma):
+def plot_gmm_solution(X, mu, sigma, title):
     """ Plots covariance ellipses for GMM
     Input:
     X: (n x d) data matrix
@@ -333,10 +348,100 @@ def plot_gmm_solution(X, mu, sigma):
         plt.arrow(u, v, s1 * V[0,0], s1 * V[1,0], head_width=0.05, head_length=0.01, alpha=1., color='r')
         plt.arrow(u, v, s2 * V[0,1], s2 * V[1,1], head_width=0.05, head_length=0.01, alpha=1., color='g')
 
+    ax.set_title(title)
     plt.grid(color='lightgray', linestyle='--')
     plt.legend()
     plt.show()
 
+def Assignment7():
+    # 1. Load the data set.
+    _5gaussians = np.load('data/5_gaussians.npy')
+    print(np.shape(_5gaussians))
+    X = _5gaussians.T
+
+    #2)Analyse with K-means & kmeans_agglo
+    fig, ax = plt.subplots(figsize=(18, 14))
+    kmloss_,mergeidx_ = [],[]
+    for i in range(2,8):
+        mu, r, loss = kmeans(X, k=i)
+        ax = fig.add_subplot(3, 2, i-1)
+        plt.scatter(X[:, 0], X[:, 1], s=30, c=r, cmap=plt.cm.nipy_spectral)
+        plt.title('K-means with k:{}'.format(i))
+        plt.xticks([], [])
+        plt.yticks([], [])
+        plt.scatter(mu[:, 0], mu[:, 1], marker='*', c='r', zorder=2, s=200, cmap=plt.cm.nipy_spectral)
+        R, kmloss, mergeidx = kmeans_agglo(X, r)
+        kmloss_.append(kmloss)
+        mergeidx_.append(mergeidx)
+
+    #kmeans_agglo plot here
+    for i,(los, idx) in enumerate(zip(kmloss_, mergeidx_)):
+        agglo_dendro(kmloss=los, mergeidx=idx, verbose=False, title='Dendro from k={}'.format(i+2))
+    plt.show()
+
+    #3)Analyse with GMM
+    for i in range(2,8):
+        mpi, mu, sigma, _ = em_gmm(X, k=i)
+        plot_gmm_solution(X, mu, sigma, 'EM_GMM with k='+str(i))
+    plt.show()
+
+def Assignment8():
+    # 1. Load the data set.
+    _2gaussians = np.load('data/2_gaussians.npy')
+    print(np.shape(_2gaussians))
+    X = _2gaussians.T
+
+    # 2)Analyse with K-means & kmeans_agglo
+    fig, ax = plt.subplots(figsize=(16, 12))
+    kmloss_, mergeidx_ = [], []
+    for i in range(1, 5):
+        mu, r, loss = kmeans(X, k=i)
+        ax = fig.add_subplot(2, 2, i)
+        plt.scatter(X[:, 0], X[:, 1], s=30, c=r, cmap=plt.cm.nipy_spectral)
+        plt.title('K-means with k:{}'.format(i))
+        plt.xticks([], [])
+        plt.yticks([], [])
+        plt.scatter(mu[:, 0], mu[:, 1], marker='*', c='r', zorder=2, s=200, cmap=plt.cm.nipy_spectral)
+        R, kmloss, mergeidx = kmeans_agglo(X, r)
+        kmloss_.append(kmloss)
+        mergeidx_.append(mergeidx)
+
+    #kmeans_agglo plot here
+    for i,(los, idx) in enumerate(zip(kmloss_, mergeidx_)):
+        agglo_dendro(kmloss=los, mergeidx=idx, verbose=False, title='Dendro from k={}'.format(i+1))
+    plt.show()
+
+    # 3)Analyse with GMM
+    for i in range(1, 5):
+        mpi, mu, sigma, _ = em_gmm(X, k=i)
+        plot_gmm_solution(X, mu, sigma, 'EM_GMM with k=' + str(i))
+    plt.show()
+
+def Assignment9():
+    # 1. Load the usps data set.
+    mat = spio.loadmat('data/usps.mat')
+    X = mat['data_patterns'].T
+    print('X:{}'.format(np.shape(X)))
+
+    mu, r, loss = kmeans(X, k=10)
+    print('K-means result, mu:{}, loss:{}'.format(np.shape(mu), loss))
+    R, kmloss, mergeidx = kmeans_agglo(X, r)
+    agglo_dendro(kmloss=kmloss, mergeidx=mergeidx, verbose=False, title='Dendro')
+    print('mergeidx: ',np.shape(mergeidx))
+    print('kmloss: ',np.shape(kmloss))
+    keys = range(len(kmloss))
+    fig, ax = plt.subplots()
+    for i in keys:
+        print(i)
+        #given X and r -> get the centroids
+        #reshape to 16
+        #plot them as images on  5x2 figure
+
+    #mpi, mu, sigma, _ = em_gmm(X, k=10)  #returns problem, matrix is singular -> not invertible
+    #print('EM_GMM result, mpi:{}, mu:{}'.format(np.shape(mpi), np.shape(mu)))
+
 if __name__ == '__main__':
-    #norm_pdf(0,0,0)
-    print('main')
+    print('Main')
+    #Assignment7()
+    #Assignment8()
+    Assignment9()

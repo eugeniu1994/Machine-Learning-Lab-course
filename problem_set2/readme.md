@@ -9,9 +9,9 @@ Implementation is done and tested.
 
 Application part:
 
-
-
-
+	Assignment 7 - Done
+	Assignment 8 - Done
+	Assignment 9 - Progress...
 
 
 
