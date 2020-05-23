@@ -440,8 +440,109 @@ def Assignment9():
     #mpi, mu, sigma, _ = em_gmm(X, k=10)  #returns problem, matrix is singular -> not invertible
     #print('EM_GMM result, mpi:{}, mu:{}'.format(np.shape(mpi), np.shape(mu)))
 
+def gammaidx(X, k):
+    def euclid_dist(x1, x2):
+        return np.sqrt(sum((x1 - x2) ** 2))
+    dist_matrix = cdist(X, X, 'euclidean')
+    near_points = np.argpartition(dist_matrix, k + 1)
+    y = []
+    for i in range(X.shape[0]):
+        y.append(np.sum([euclid_dist(X[i, :], X[j, :]) for j in near_points[i, :k + 1]]))
+    y = (1 / k) * np.array(y)
+
+    return y
+
+def auc(y_true, y_pred, plot=False):
+    fpr, tpr = [], []
+    th = np.arange(0.0, 1.1, .1)  # thresholds
+    P, N = 0, 0  # positive, negative
+    for cls in y_true:
+        if cls > 0:
+            P += 1
+    N = len(y_true) - P
+    assert N>0 and P>0, 'N or P is zero, zero division exception (No positive or negative classes, Inbalanced data)'
+
+    for thresh in th:
+        FP, TP = 0, 0
+        for i in range(len(y_pred)):
+            if (y_pred[i] > thresh):
+                if y_true[i] == 1:
+                    TP += 1
+                if y_true[i] == -1:
+                    FP += 1
+        fpr.append(FP / float(N))
+        tpr.append(TP / float(P))
+
+    c = np.abs(np.trapz(tpr, fpr)) # trapezoidal rule
+
+    if plot:
+        plt.plot(fpr, tpr, label="ROC, AUC score:" + str(c))
+        plt.xlabel('False Positive Rate')
+        plt.ylabel('True Positive Rate')
+        plt.legend()
+        plt.show()
+
+    return c, tpr, fpr
+
+def Assignment10():
+    # 1. Load the data set.
+    dataset = np.load('data/lab_data.npz')
+    print(dataset.files)
+    X = dataset['X'] #[:20,:]
+    Y = dataset['Y']#[:20,]
+    print('X:{},  Y:{}'.format(np.shape(X), np.shape(Y)))
+    fig = plt.figure(figsize=(8, 8))
+    ax = fig.add_subplot(1, 1, 1, projection='3d', adjustable='box')
+    ax.scatter(X[:, 0], X[:, 1], X[:, 2], c=Y, s=20,edgecolor='k')
+
+    #2) em_gmm
+    mpi, mu, sigma, logLik = em_gmm(X, k=3, init_kmeans=False) #problem  with init_kmeans=True
+    print('EM_GMM result, mpi:{}, mu:{}, sigma:{}, logLik:{}'.format(np.shape(mpi), np.shape(mu),np.shape(sigma),logLik))
+    ax.scatter(mu[:, 0], mu[:, 1], mu[:, 2], c='r', marker='o', s=200, edgecolor='k')
+
+    #3) gammaidx
+    from sklearn.metrics import roc_auc_score #just for tests
+    #I used sklearn just to compare with my own implementation, delete it later
+    AUC_history = [] #AUC own
+    AUC_history2 = [] #AUC with sklearn
+    for i in range(1,15): #neighbors for gamma
+        print(i)
+        gamma = gammaidx(X, k=i)
+        c, tpr, fpr = auc(y_true=Y, y_pred=gamma)
+        AUC_history.append(c)
+        AUC_history2.append(roc_auc_score(Y, gamma))
+
+    fig, axs = plt.subplots()
+    plt.plot(range(1,15),AUC_history, label='AUC')
+    axs.set_title('gammaidx & AUC ')
+    axs.set_xlabel(r'$k$')
+    axs.set_ylabel(r'$AUC$')
+    plt.legend()
+
+    fig, axs = plt.subplots()
+    plt.plot(range(1, 15), AUC_history2, label='AUC 2')
+    axs.set_title('gammaidx & AUC using sklearn')
+    axs.set_xlabel(r'$k$')
+    axs.set_ylabel(r'$AUC $')
+    plt.legend()
+
+    #4)
+    fig, axs = plt.subplots()
+    gamma = gammaidx(X, k=2)
+    c, tpr, fpr = auc(y_true=Y, y_pred=gamma)
+    plt.plot(fpr, tpr, label="ROC, AUC score:" + str(c))
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.legend()
+
+    #------------------------------------------
+
+
+    plt.show()
+
 if __name__ == '__main__':
     print('Main')
     #Assignment7()
     #Assignment8()
-    Assignment9()
+    #Assignment9()
+    Assignment10()
