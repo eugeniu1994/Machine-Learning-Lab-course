@@ -236,6 +236,48 @@ def agglo_dendro(kmloss, mergeidx):
     plt.ylabel('distance')
     dendrogram(Z)
     plt.show()
+    
+############################# Multivariate Gaussian distribution############################################################
+def norm_pdf(X, mu, C):
+    """ Computes probability density function for multivariate gaussian
+
+    Input:
+    X: (n x d) data matrix with each datapoint in one column
+    mu: vector for center
+    C: covariance matrix
+
+    Output:
+    pdf value for each data point
+    """
+    n, d = X.shape
+    # We can always use pinv since pinv(C)=inv(C) for non singular matrices
+    # In the case C is singular, pinv can handle it
+    # solve is mainly used to solve linear systems as Cx=b and returns b
+    C_inv = np.linalg.pinv(C)
+    # In the case C is singular, we compute the pseudo-determinant, since the determinant of C =0 and we would not be
+    # able to divide by it when computing the gaussian distribution
+
+    # The pseudo determinantis the product of all non-zero eigenvalues of a square matrix. It coincides with the regular
+    # determinant when the matrix is non-singular.
+    if np.linalg.det(C) == 0:
+        eig_values = np.linalg.eig(C)
+        C_det = np.product(eig_values[eig_values > 1e-12])
+
+    else:
+        C_det = np.linalg.det(C)
+
+    # Compute Q and terms of the multivariate Gaussian distribution: a*exp(Q)
+    X_mu = X - mu
+
+    Q = -0.5 *((X_mu) @ C_inv @ (X_mu.T))
+    a = 1/(np.sqrt((2*np.pi)**d * C_det))
+
+    # Compute final gaussian values
+    y = a * np.exp(Q)
+
+    return y
+
+#################### Example ####################################################################################
 #X = np.array([[0., 1., 1., 10., 10.25, 11., 10., 10.25, 11.], [0., 0., 1.,  0.,   0.5,  0.,  5.,   5.5,  5.]]).T
 X = np.zeros((20, 2))
 
