@@ -6,11 +6,12 @@ from scipy.cluster.hierarchy import dendrogram  # you can use this
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D  # for when you create your own dendrogram
 import scipy.io as spio          #used to lod .mat dataset
+import random
 
 #np.random.seed(2020)
 
 #Assignment 1
-def kmeans(X, k, max_iter=100):
+def kmeans_(X, k, max_iter=100, plotData=False):
     """ Performs k-means clustering
     Input:
     X: (n x d) data matrix with each datapoint in one column
@@ -24,12 +25,8 @@ def kmeans(X, k, max_iter=100):
     mu = np.zeros((k,d))
     mu[:k,:] = X[:k,:] #initial centroids from data
 
-    mu_old = np.zeros(mu.shape)  # store old centroids
     r = np.zeros(n)
     r_prim = np.zeros(n)
-    loss = cdist(X, mu, 'euclidean').sum() # np.linalg.norm(mu - mu_old)
-
-    plot = False
     for j in range(max_iter):
         #Compute distance to every centroid
         distances = cdist(X, mu, 'euclidean')
@@ -37,27 +34,25 @@ def kmeans(X, k, max_iter=100):
         # Assign data to closest centroid
         r_prim = r.copy()
         r = np.argmin(distances, axis=1)
-        if (r == r_prim).all():
+        diff = (r != r_prim).sum() # cluster memberships which changed
+        # Compute new cluster center
+        for i in range(k): #Handle empty cluster by reinitializing them at a random data point if cluster is empty
+            mu[i] = np.mean(X[r == i], axis=0) if i in r else X[np.random.randrange(n), :]
+
+        loss = distances.sum()  # for sum of euclidean distances to cluster centers
+        #print('Iterations: {}, Memberships changed:{}, Loss:{}'.format(j, diff, loss))
+        if diff == 0:   # cluster memberships which changed
             break
 
-        # Compute new cluster center
-        mu_old = mu.copy()
-        for i in range(k):
-            mu[i] = np.mean(X[r == i], axis=0)
-
-        loss = distances.sum() #for sum of euclidean distances to cluster centers
-        #print('Iterations: {},  Loss:{}'.format(j, loss))
-
-    if plot:
-        for i in range(n):
-            plt.scatter(X[i, 0], X[i, 1], s=100, c='b')
+    if plotData:
+        plt.scatter(X[:, 0], X[:, 1], s=100, c=r)
         plt.scatter(mu[:, 0], mu[:, 1], marker='*', c='g', s=150)
         plt.show()
 
     return mu, r, loss
 
 #Assignment 2
-def kmeans_agglo(X, r, verbose = False):
+def kmeans_agglo_(X, r, verbose = True):
     """ Performs agglomerative clustering with k-means criterion
     Input:
     X: (n x d) data matrix with each datapoint in one column
@@ -67,87 +62,60 @@ def kmeans_agglo(X, r, verbose = False):
     kmloss: vector with loss after each step
     mergeidx: (k-1) x 2 matrix that contains merge idx for each step
     """
-    def kmeans_crit(X, r):
+    n, d = np.shape(X)
+    def kmeans_crit(X, r, mu):
         """ Computes k-means criterion
         Input:
-        X: (n x d) data
+        X: (n x d) data matrix with each datapoint in one column
         r: assignment vector
         Output:
         value: scalar for sum of euclidean distances to cluster centers
         """
-        local_k= len(np.unique(r)) #number of different values  i.e. clusters
-        print('There are {} clusters'.format(local_k))
-        local_mu = np.zeros((local_k, d))
-        for i in range(local_k):
-            local_mu[i] = np.mean(X[r == i], axis=0)
-        return cdist(X, local_mu, 'euclidean').sum(-1)
+        # Init loss value
+        distances = cdist(X, mu, 'euclidean')
+        clusters = np.unique(r)
+        loss = 0.0
+        for j in range(n):
+            loss += np.squeeze(distances[j, np.argwhere(clusters == r[j])]**2)
 
-    n, d = np.shape(X)
-    labels = range(n)
-    #plotting the data with labels
-    if verbose:
-        plt.figure(figsize=(6, 6))
-        plt.scatter(X[:, 0], X[:, 1],)
-        for label, x, y in zip(labels, X[:, 0], X[:, 1]):
-            plt.annotate(label,xy=(x, y), xytext=(-3, 3),textcoords='offset points', ha='right', va='bottom')
-        plt.show()
+        return loss
 
-    if verbose:
-        r = [i for i in range(X.shape[0])] #this is just for test, comment this line, to get the r from parameters
-        print('r ',r)
-    _k = len(np.unique(r))  # number of different values  i.e. clusters
-    if verbose:
-        print('There are {} clusters'.format(_k))
-    centroids = np.zeros((_k, d))
+    def compute_New_Centroids(X, r):
+        new_k = len(np.unique(r))  # number of different values  i.e. clusters
+        j = 0
+        new_mu = np.zeros((new_k, d))
+        for i in np.unique(r):
+            new_mu[j] = np.mean(X[r == i], axis=0) if i in r else X[random.randrange(n), :]
+            j += 1
+        return new_mu
+
+    #r = [i for i in range(X.shape[0])] #this is just for test, comment this line, to get the r from parameters
     r = np.array(r)
     R, kmloss, mergeidx = [], [], []
     R.append(r)
-    for i in range(_k):
-        centroids[i] = np.mean(X[r == i], axis=0)
-    if verbose:
-        print('centroids ', np.shape(centroids))
+    centroids = compute_New_Centroids(X,r)
     kmloss.append(cdist(X, centroids, 'euclidean').sum())
+    #kmloss.append(kmeans_crit(X=X, r=r, mu=centroids))
     m = len(centroids)
     while (m > 1):
-        if verbose:
-            print('Before clustering  {} clusters'.format(m))
-            print('Centroids: ', np.shape(centroids))
         distance_matrix = cdist(centroids, centroids, 'euclidean')
-        #print('distance_matrix ', np.shape(distance_matrix))
-        np.fill_diagonal(distance_matrix, np.inf) #fill diagonal with infinity, in order to get the min value (before zero filling, diagonal is zero)
+        np.fill_diagonal(distance_matrix, np.inf) #fill diagonal with infinity, in order to get the min value
         min_idx = np.where(distance_matrix == distance_matrix.min())[0] #x index where min value
-        if verbose:
-            print('min_idx ', np.shape(min_idx))
-            print('Indices that correspond to min value ',min_idx)
+
         u = np.unique(r)
-        #for i in range(int(len(min_idx)/2)):
-        i=0
-        val1 = u[min_idx[int(2*i)]]
-        val2 = u[min_idx[int(2 * i+1)]]
-        r[np.where(r == val2)] = val1
-        mergeidx.append([val1, val2]) #save merged indexes
+        r[np.where(r == u[min_idx[1]])] = u[min_idx[0]]
+        mergeidx.append([u[min_idx[0]], u[min_idx[1]]]) #save merged indexes
         R.append(r) #save current assignment vector
+        centroids = compute_New_Centroids(X, r)
+        kmloss.append(round(cdist(X, centroids, 'euclidean').sum(),2))  # save distance loss
+        #kmloss.append(np.round((kmeans_crit(X=X, r=r, mu=centroids)),2))
 
-        _k = len(np.unique(r))  # number of different values  i.e. clusters
-        if verbose:
-            print('There are {} clusters'.format(_k))
-            print('unique ',np.unique(r))
-        centroids = np.zeros((_k, d))
-
-        j=0
-        for i in np.unique(r):
-            centroids[j] = np.mean(X[r == i], axis=0)
-            j+=1
-        if verbose:
-            print('Centroids: ', np.shape(centroids))
-        kmloss.append(cdist(X, centroids, 'euclidean').sum())  # save distance loss
         m = len(centroids)
-        if verbose:
-            print('Current r: ', r)
-            print('Current m: ', m)
-            print('\n')
 
-    #this is just to check the scipy result
+        #print('mergeidx ', mergeidx)
+        #print(kmloss)
+        print('\n')
+
     '''import scipy.cluster.hierarchy as shc
     plt.figure(figsize=(8, 8))
     plt.title('Visualising the data')
@@ -155,6 +123,8 @@ def kmeans_agglo(X, r, verbose = False):
     print('Z shape is ', np.shape(Z))
     Dendrogram = dendrogram((Z))
     plt.show()'''
+
+    #kmloss = np.squeeze(kmloss)
 
     if verbose:
         print('R  ', np.shape(R))
@@ -164,13 +134,12 @@ def kmeans_agglo(X, r, verbose = False):
     return R, kmloss, mergeidx
 
 #Assignment 3
-def agglo_dendro(kmloss, mergeidx, verbose = True, title='', ax=None):
+def agglo_dendro_(kmloss, mergeidx, verbose = False, title='', ax=None):
     """ Plots dendrogram for agglomerative clustering
     Input:
     kmloss: vector with loss after each step
     mergeidx: (k-1) x 2 matrix that contains merge idx for each step
     """
-    kmloss = kmloss[::-1]
     if verbose:
         print(kmloss)
         print('level loses', np.shape(kmloss))
@@ -179,14 +148,18 @@ def agglo_dendro(kmloss, mergeidx, verbose = True, title='', ax=None):
     def helper(x0,x1,y0,y1,next_loss):
         return ([[x0,x0,x1,x1],[y0,next_loss,next_loss,y1]]), [(x0+x1)/2.0,next_loss]
 
+    kmloss = np.array(kmloss)
     MyDict = {}
     keys = range(len(kmloss))
     if ax==None:
         fig, ax = plt.subplots()
+
     for i in keys:
         plt.scatter(i, 0, c='k')
         MyDict[i] = dict({'label': str(i), 'x': i, 'y': 0})
-    #print(MyDict)
+
+    kmloss = 1.0 / kmloss
+    kmloss = kmloss[1:]
     for i,(next_level,(c1,c2)) in enumerate(zip(kmloss,mergeidx)):
         x0, y0 = MyDict[c1]['x'], MyDict[c1]['y']
         x1, y1 = MyDict[c2]['x'], MyDict[c2]['y']
@@ -206,12 +179,215 @@ def agglo_dendro(kmloss, mergeidx, verbose = True, title='', ax=None):
         MyDict[c1]['y'] = center[1]
         MyDict[c1]['label'] = '({0},{1})'.format(MyDict[c1]['label'], MyDict[c2]['label'])
 
-        if verbose:
-            ax.text(*center, MyDict[c1]['label']) #plot label to new cluster
+        ax.text(*center, MyDict[c1]['label']) #plot label to new cluster
 
-    ax.set_ylim(-10, 1.2 * np.max(kmloss))
     plt.title(title)
     plt.show()
+
+from itertools import combinations_with_replacement
+
+def kmeans(X, k, max_iter=100):
+    """ Performs k-means clustering
+    Input:
+    X: (n x d) data matrix with each datapoint in one column
+    k: number of clusters
+    max_iter: maximum number of iterations
+    Output:
+    mu: (k x d) matrix with each cluster center in one column
+    r: assignment vector
+    """
+    n,d = np.shape(X)
+
+    #Randomly initialize centroids as data points
+    random_indexes = random.sample(range(n), k)
+    mu = X[random_indexes, :]
+
+    mu_old = np.zeros(mu.shape)  # store old centroids
+    r = np.zeros(n)
+
+    loss = 0
+    plot = False
+    for j in range(max_iter):
+        #Compute distance to every centroid
+        distances = cdist(X, mu, 'euclidean')
+        # Assign data to closest centroid
+        r_prim = r.copy()
+        r = np.argmin(distances, axis=1)
+        loss = np.sum(distances[np.arange(n), r] ** 2)
+        if (r == r_prim).all():
+            break
+        # Compute new cluster center
+        mu = new_centroids(X=X, r=r, k=k)
+
+        print('Iterations: {},  Loss:{}'.format(j, loss))
+
+
+    if plot:
+        for i in range(n):
+            plt.scatter(X[i, 0], X[i, 1], s=100, c='b')
+        plt.scatter(mu[:, 0], mu[:, 1], marker='*', c='g', s=150)
+        plt.show()
+
+
+    return mu, r, loss
+
+def new_centroids(X, r, k):
+    """ Computes new cenctroids matrix for a given dataset and its correspondent assignment vector.
+        Handle empty cluster by reinitializing them at a random data point
+    Input:
+    X: (n x d) data matrix
+    r: (nx1) array/vector , assignment vector indicating to which cluster every datapoint be longs
+    k: int, number of clusters
+    Output:
+    mu: (kxd) array, with the k- new centroids, with the kth cetroid corresponding to the kth cluster
+    """
+    n, d = X.shape
+    # Compute new cluster center
+    mu = np.zeros((k, d))
+    for i in range(k):
+        if i in r:
+            # In this case the cluster is not empty and we can compute the new centroid as usual
+            mu[i] = np.mean(X[r == i], axis=0)
+        else:
+            # In this case the cluster is empty and we reinitialize the cluster at some random data point
+            mu[i] = X[random.randrange(n), :]
+
+    return mu
+########################################################################################################################
+def new_centroids_agglo(X, r, k):
+    """ Computes new cenctroids matrix for a given dataset and its correspondent assignment vector.
+        Handle empty cluster by reinitializing them at a random data point
+    Input:
+    X: (n x d) data matrix
+    r: (nx1) array/vector , assignment vector indicating to which cluster every datapoint be longs
+    k: int, number of clusters
+    Output:
+    mu: (kxd) array, with the k- new centroids, with the kth cetroid corresponding to the kth cluster
+    """
+    n, d = X.shape
+    # Compute new cluster center
+    mu = np.zeros((k, d))
+
+    for indx, i in enumerate(np.unique(r)):
+        # In this case the cluster is not empty and we can compute the new centroid as usual
+        mu[indx] = np.mean(X[r == i], axis=0)
+
+    return mu
+
+
+def kmeans_agglo(X, r):
+    """ Performs agglomerative clustering with k-means criterion
+    Input:
+    X: (n x d) data matrix with each datapoint in one column
+    r: assignment vector
+    Output:
+    R: (k-1) x n matrix that contains cluster memberships before each step
+    kmloss: vector with loss after each step
+    mergeidx: (k-2) x 2 matrix that contains merge idx for each step
+    """
+    def kmeans_crit(X, r, mu):
+        """ Computes k-means criterion
+        Input:
+        X: (n x d) data matrix with each datapoint in one column
+        r: assignment vector
+        Output:
+        value: scalar for sum of euclidean distances to cluster centers
+        """
+        # Init loss value
+        distances = cdist(X, mu, 'euclidean')
+        clusters = np.unique(r)
+        loss = 0
+        for j in range(n):
+            loss += distances[j, np.argwhere(clusters == r[j])]**2
+
+        return loss
+
+    # Compute clusters set
+    c = compute_C_set(r)
+    k = len(c)
+    n, d = X.shape
+    # Init return arrays
+    R = np.zeros(((k), n))
+    kmloss = np.zeros(k)
+    mergeidx = np.zeros((k-1, 2), dtype='int')
+    # Compute centroids
+    mu = new_centroids_agglo(X=X, r=r, k=k)
+
+    # Compute L loss value for the initial clustering
+    kmloss[0] = kmeans_crit(X=X, r=r, mu=mu)
+    R[0, :] = r
+
+    new_cluster_idx = n
+
+    for j in range(k-1):
+        # compute all possible 2 cluster merge combinations
+        clust_comb = list(combinations_with_replacement(c, 2))
+
+        #  Now we need to compute the loss value for every merge combination and take the max one
+        loss_local = np.zeros(len(clust_comb))
+        for index, merge_pair in enumerate(clust_comb):
+            # Avoid (0,0), (1,1) etc merges
+            if merge_pair[0] == merge_pair[1]:
+                loss_local[index] = np.inf
+            else:
+                # Generate new merged cluster
+                r_merged = r.copy()
+                r_merged[np.argwhere(r == merge_pair[0])] = merge_pair[1]
+                # Compute new centroids for the merged cluster
+                mu_new = new_centroids_agglo(X=X, r=r_merged, k=(len(c)-1))
+                # Compute loss
+                loss_local[index] = kmeans_crit(X=X, r=r_merged, mu=mu_new)
+
+        # Compute min L of all merge options
+        L_min = np.min(loss_local)
+        kmloss[j+1] = L_min
+        # Get merge clusters min
+        min_merge_clusters = clust_comb[int(np.argwhere(loss_local == L_min)[0])]
+        r_min = r
+        r_min[np.argwhere(r == min_merge_clusters[0])] = new_cluster_idx
+        r_min[np.argwhere(r == min_merge_clusters[1])] = new_cluster_idx
+        R[j+1, :] = r_min
+        mergeidx[j, :] = np.asarray(min_merge_clusters)
+
+        # Update
+        r = r_min
+        c = compute_C_set(r=r)
+
+        new_cluster_idx += 1
+    return R, kmloss, mergeidx
+
+def compute_C_set(r):
+    """  Computes the set of clusters
+    Input:
+    r: 1D array, assignment vector
+    Output:
+    c : 1D array, contains all possible clusters ordered
+    """
+    c = np.unique(r)
+    return c
+
+
+def agglo_dendro(kmloss, mergeidx):
+    """ Plots dendrogram for agglomerative clustering
+    Input:
+    kmloss: vector with loss after each step
+    mergeidx: (k-1) x 2 matrix that contains merge idx for each step
+    """
+
+    # Build Z for the dendogram
+    Z = np.zeros((mergeidx.shape[0], 4))
+
+    Z[:, 3] = 1
+    Z[:, :2] = mergeidx
+    Z[:, 2] = kmloss[1:]
+
+    print(Z)
+    plt.title('Hierarchical Clustering Dendrogram (truncated)')
+    plt.xlabel('sample index or (cluster size)')
+    plt.ylabel('distance')
+    dendrogram(Z)
+    plt.show()
+
 
 #Assignment 4
 def norm_pdf(X, mu, C):
@@ -545,4 +721,5 @@ if __name__ == '__main__':
     #Assignment7()
     #Assignment8()
     #Assignment9()
-    Assignment10()
+    #Assignment10()
+
