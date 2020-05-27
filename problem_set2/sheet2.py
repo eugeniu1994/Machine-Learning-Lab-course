@@ -141,7 +141,9 @@ def agglo_dendro(kmloss, mergeidx, verbose = False, title='', ax=None):
     kmloss = np.array(kmloss)
     MyDict = {}
     keys = range(len(kmloss))
-    if ax==None:
+    ps2_test = False
+    if ax is None:
+        ps2_test = True
         fig, ax = plt.subplots()
 
     UseSortedLabel = True #
@@ -151,7 +153,7 @@ def agglo_dendro(kmloss, mergeidx, verbose = False, title='', ax=None):
         m =  [m[index] for index in sorted(idx)]
 
     for i in keys:
-        plt.scatter(i, 0, c='k')
+        ax.scatter(i, 0, c='k')
         if UseSortedLabel:
             MyDict[m[i]] = dict({'label': str(m[i]), 'x': i, 'y': 0})
         else:
@@ -181,10 +183,11 @@ def agglo_dendro(kmloss, mergeidx, verbose = False, title='', ax=None):
         ax.text(*center, MyDict[c1]['label']) #plot label to new cluster
 
     if UseSortedLabel:
-        plt.xticks(np.arange(len(m)), [str(mi) for mi in m])
-    plt.yticks([], [])
-    plt.title(title)
-    plt.show()
+        ax.set_xticks(np.arange(len(m)), [str(mi) for mi in m])
+    #ax.set_yticks([], [])
+    ax.set_title(title)
+    if ps2_test:
+        plt.show()
 
 #Assignment 4
 def norm_pdf(X, mu, C):
@@ -200,7 +203,7 @@ def norm_pdf(X, mu, C):
     #determinant when the matrix is non-singular.
     if np.linalg.det(C) == 0: #pseudo determinant
         print('Matrix is not invertible')
-        eig_values = np.linalg.eigh(C) # np.linalg.eig(C)
+        eig_values = np.linalg.eig(C)
         C_det = 1.0
         for i in range(len(eig_values)):
             C_det *= np.product(eig_values[i][eig_values[i] > 1e-12])
@@ -212,12 +215,12 @@ def norm_pdf(X, mu, C):
 
     down = np.sqrt((2 * np.pi) ** d * C_det) # , #down = ((2 * np.pi) ** d/2) * np.sqrt(C_det)
     up = -np.einsum('...i,ij,...j->...', X - mu, C_inv, X - mu)/2  #  einsum (x-mu)T.Sigma-1.(x-mu)
-    pdf = np.exp(up) / down
 
+    pdf = np.exp(up) / down
     return pdf
 
 #Assignment 5
-def em_gmm(X, k, max_iter=100, init_kmeans=False, eps=1e-3):
+def em_gmm(X, k, max_iter=100, init_kmeans=False, eps=1e-3, Iterations = False):
     """ Implements EM for Gaussian Mixture Models
         Input:
         X: (n x d) data matrix
@@ -225,7 +228,6 @@ def em_gmm(X, k, max_iter=100, init_kmeans=False, eps=1e-3):
         max_iter: maximum number of iterations
         init_kmeans: whether kmeans should be used for initialisation
         eps: when log likelihood difference is smaller than eps, terminate loop
-
         Output:
         mpi: 1 x k matrix of priors
         mu: (k x d) matrix with each cluster center in one column
@@ -235,12 +237,12 @@ def em_gmm(X, k, max_iter=100, init_kmeans=False, eps=1e-3):
     if init_kmeans:
         print('Init by k-means ')
         mu, _, _ = kmeans(X, k=k)
-        sigma = np.array([np.cov(X.T) for _ in range(k)])
+        mu = np.asmatrix(mu)
     else:
         print('Init by random ')
         rand_row = np.random.randint(low=0, high=n, size=k)
         mu = np.asmatrix([X[row_idx, :] for row_idx in rand_row])
-        sigma = np.array([np.eye(d) for _ in range(k)])
+    sigma = np.array([np.eye(d) for _ in range(k)])
     mpi = np.ones(k) / k
     g = np.full((n, k), fill_value=1 / k) #gamma
 
@@ -280,18 +282,22 @@ def em_gmm(X, k, max_iter=100, init_kmeans=False, eps=1e-3):
         iter += 1
         #print('Iter:{},  log-likelihood:{}, error:{}'.format(iter,logLik,abs(logLik - prev_logLik)))
     print('Finished at {} iter, Log-likelihood:{}'.format(iter,logLik))
-
+    if Iterations:
+        return mpi, mu, sigma, logLik, iter
     return mpi, mu, sigma, logLik
 
 #Assignment 6
-def plot_gmm_solution(X, mu, sigma, title=''):
+def plot_gmm_solution(X, mu, sigma, title='', ax=None):
     """ Plots covariance ellipses for GMM
     Input:
     X: (n x d) data matrix
     mu: (k x d) matrix
     sigma: list of d x d covariance matrices
     """
-    fig, ax = plt.subplots(figsize=(6, 6))
+    ps2_test = False
+    if ax is None:
+        ps2_test = True
+        fig, ax = plt.subplots(figsize=(6, 6))
 
     ax.scatter(X[:, 0], X[:, 1], s=50, c='tab:blue')
     ax.scatter(mu[:, 0].A1, mu[:, 1].A1, c='r', s=150, marker='x',lw=2)
@@ -302,22 +308,24 @@ def plot_gmm_solution(X, mu, sigma, title=''):
 
         p= .9
         s = -2 * np.log(1 - p)
+        print(sigma)
         D,V = np.linalg.eig(sigma[i] * s)
         a = (V * np.sqrt(D)) @ [np.cos(t), np.sin(t)]
-        plt.plot(a[0,:] + u, a[1,:] + v, c='g',lw=2)
+        ax.plot(a[0,:] + u, a[1,:] + v, c='g',lw=2)
 
     ax.set_title(title)
-    plt.grid(color='lightgray', linestyle='--')
+    ax.grid(color='lightgray', linestyle='--')
     custom_lines = [Line2D([0], [0], color='tab:blue', lw=1, marker='o'),
                     Line2D([0], [0], color='g', lw=4),
                     Line2D([0], [0], color='r', lw=1, marker='x')]
-    plt.legend(custom_lines, ['Data points', 'GMM Covariance', 'Mean vectors'])
-    plt.show()
+    ax.legend(custom_lines, ['Data points', 'GMM Covariance', 'Mean vectors'])
+    if ps2_test:
+        plt.show()
 
 def Assignment7():
     # 1. Load the data set.
     _5gaussians = np.load('data/5_gaussians.npy')
-    X = _5gaussians.T
+    X = _5gaussians.T#[:40,:]
     print(np.shape(X))
 
     #2)Analyse with K-means & kmeans_agglo
@@ -336,14 +344,36 @@ def Assignment7():
         mergeidx_.append(mergeidx)
 
     #kmeans_agglo plot here
+    fig1, axe1 = plt.subplots(figsize=(18, 14))
     for i,(los, idx) in enumerate(zip(kmloss_, mergeidx_)):
-        agglo_dendro(kmloss=los, mergeidx=idx, verbose=False, title='Dendro from k={}'.format(i+2))
+        ax1 = fig1.add_subplot(3, 2, i +1)
+        agglo_dendro(kmloss=los, mergeidx=idx, verbose=False, title='Dendro from k={}'.format(i+2), ax=ax1)
     plt.show()
 
     #3)Analyse with GMM
+    fig1, axe1 = plt.subplots(figsize=(18, 14))
+    fig2, axe2 = plt.subplots(figsize=(18, 14))
+    IterationGMM, IterationsGMM_kmeans, LogGMM, LogGMM_kmeans = [],[],[],[]
     for i in range(2,8):
-        mpi, mu, sigma, _ = em_gmm(X, k=i)
-        plot_gmm_solution(X, mu, sigma, 'EM_GMM with k='+str(i))
+        mpi, mu, sigma, logLik0, Iterations0 = em_gmm(X, k=i, Iterations = True)
+        IterationGMM.append(Iterations0)
+        LogGMM.append(logLik0)
+        ax1 = fig1.add_subplot(3, 2, i - 1)
+        plot_gmm_solution(X, mu, sigma, 'EM_GMM with k=' + str(i), ax=ax1)
+        mpi, mu, sigma, logLik_kmeans, Iterations_kmeans = em_gmm(X, k=i,init_kmeans=True,Iterations = True)
+        IterationsGMM_kmeans.append(Iterations_kmeans)
+        LogGMM_kmeans.append(logLik_kmeans)
+        ax2 = fig2.add_subplot(3, 2, i - 1)
+        plot_gmm_solution(X, mu, sigma, 'EM_GMM with k=' + str(i)+' init with k-means',ax=ax2)
+    plt.show()
+
+    plt.plot(range(2,8),IterationGMM, label='Iterations')
+    plt.plot(range(2,8),IterationsGMM_kmeans, label='Iterations k-means')
+    plt.plot(range(2,8),LogGMM, label='LogGMM')
+    plt.plot(range(2,8),LogGMM_kmeans, label='LogGMM with kmeans')
+    plt.legend()
+    plt.xticks(range(2,8), [str(mi) for mi in range(2,8)])
+    plt.xlabel('K')
     plt.show()
 
 def Assignment8():
@@ -353,29 +383,42 @@ def Assignment8():
     X = _2gaussians.T
 
     # 2)Analyse with K-means & kmeans_agglo
-    fig, ax = plt.subplots(figsize=(16, 12))
+    fig, ax = plt.subplots(figsize=(18, 14))
     kmloss_, mergeidx_ = [], []
-    for i in range(1, 5):
+    for i in range(2, 4):
         mu, r, loss = kmeans(X, k=i)
-        ax = fig.add_subplot(2, 2, i)
-        plt.scatter(X[:, 0], X[:, 1], s=30, c=r, cmap=plt.cm.nipy_spectral)
+        ax = fig.add_subplot(2, 1, i - 1)
+        plt.scatter(X[:, 0], X[:, 1], s=30, c=r)
         plt.title('K-means with k:{}'.format(i))
         plt.xticks([], [])
         plt.yticks([], [])
-        plt.scatter(mu[:, 0], mu[:, 1], marker='*', c='r', zorder=2, s=200, cmap=plt.cm.nipy_spectral)
+        plt.scatter(mu[:, 0], mu[:, 1], marker='*', c='r', zorder=2, s=200, lw=3, cmap=plt.cm.nipy_spectral)
         R, kmloss, mergeidx = kmeans_agglo(X, r)
         kmloss_.append(kmloss)
         mergeidx_.append(mergeidx)
 
-    #kmeans_agglo plot here
-    for i,(los, idx) in enumerate(zip(kmloss_, mergeidx_)):
-        agglo_dendro(kmloss=los, mergeidx=idx, verbose=False, title='Dendro from k={}'.format(i+1))
+    # kmeans_agglo plot here
+    fig1, axe1 = plt.subplots(figsize=(18, 14))
+    for i, (los, idx) in enumerate(zip(kmloss_, mergeidx_)):
+        ax1 = fig1.add_subplot(2, 1, i + 1)
+        agglo_dendro(kmloss=los, mergeidx=idx, verbose=False, title='Dendro from k={}'.format(i + 2), ax=ax1)
     plt.show()
 
     # 3)Analyse with GMM
-    for i in range(1, 5):
-        mpi, mu, sigma, _ = em_gmm(X, k=i)
-        plot_gmm_solution(X, mu, sigma, 'EM_GMM with k=' + str(i))
+    fig1, axe1 = plt.subplots(figsize=(18, 14))
+    fig2, axe2 = plt.subplots(figsize=(18, 14))
+    IterationGMM, IterationsGMM_kmeans, LogGMM, LogGMM_kmeans = [], [], [], []
+    for i in range(2, 4):
+        mpi, mu, sigma, logLik0, Iterations0 = em_gmm(X, k=i, Iterations=True)
+        IterationGMM.append(Iterations0)
+        LogGMM.append(logLik0)
+        ax1 = fig1.add_subplot(2, 1, i - 1)
+        plot_gmm_solution(X, mu, sigma, 'EM_GMM with k=' + str(i), ax=ax1)
+        mpi, mu, sigma, logLik_kmeans, Iterations_kmeans = em_gmm(X, k=i, init_kmeans=True, Iterations=True)
+        IterationsGMM_kmeans.append(Iterations_kmeans)
+        LogGMM_kmeans.append(logLik_kmeans)
+        ax2 = fig2.add_subplot(2, 1, i - 1)
+        plot_gmm_solution(X, mu, sigma, 'EM_GMM with k=' + str(i) + ' init with k-means', ax=ax2)
     plt.show()
 
 def Assignment9():
@@ -385,15 +428,27 @@ def Assignment9():
     print('X:{}'.format(np.shape(X)))
 
     mu, r, loss = kmeans(X, k=10)
-    print('K-means result, mu:{}, loss:{}'.format(np.shape(mu), loss))
+    plt.scatter(X[:, 0], X[:, 1], s=30, c=r, cmap=plt.cm.nipy_spectral)
+    plt.scatter(mu[:, 0], mu[:, 1], marker='*', c='r', zorder=2, s=200, lw=3, cmap=plt.cm.nipy_spectral)
+
     R, kmloss, mergeidx = kmeans_agglo(X, r)
     agglo_dendro(kmloss=kmloss, mergeidx=mergeidx, verbose=False, title='Dendro')
+
+    mpi, mu, sigma, logLik0 = em_gmm(X, k=10)
+    plot_gmm_solution(X, mu, sigma, 'EM_GMM with k=' + str(10),)
+
+    mpi, mu, sigma, logLik_kmeans = em_gmm(X, k=10, init_kmeans=True)
+    plot_gmm_solution(X, mu, sigma, 'EM_GMM with k=' + str(10) + ' init with k-means')
+
+
+
+    print('K-means result, mu:{}, loss:{}'.format(np.shape(mu), loss))
     print('mergeidx: ',np.shape(mergeidx))
     print('kmloss: ',np.shape(kmloss))
     keys = range(len(kmloss))
     fig, ax = plt.subplots()
-    for i in keys:
-        print(i)
+    #for i in keys:
+    #    print(i)
         #given X and r -> get the centroids
         #reshape to 16
         #plot them as images on  5x2 figure
@@ -503,8 +558,9 @@ def Assignment10():
 
 if __name__ == '__main__':
     print('Main')
-    Assignment7()
+    #Assignment7()
     #Assignment8()
-    #Assignment9()
+    Assignment9()
     #Assignment10()
+
 
