@@ -199,15 +199,14 @@ def norm_pdf(X, mu, C):
     Output:
     pdf value for each data point
     """
+
     d = np.shape(X)[1]
-    #determinant when the matrix is non-singular.
+    # The pseudo determinantis the product of all non-zero eigenvalues of a square matrix. It coincides with the regular
+    # determinant when the matrix is non-singular.
     if np.linalg.det(C) == 0: #pseudo determinant
         print('Matrix is not invertible')
-        eig_values = np.linalg.eig(C)
-        C_det = 1.0
-        for i in range(len(eig_values)):
-            C_det *= np.product(eig_values[i][eig_values[i] > 1e-12])
-        #C_det = np.product(eig_values[eig_values > 1e-12])      # this gives:TypeError: '>' not supported between instances of 'tuple' and 'float'
+        eig_values, eig_vectors = np.linalg.eig(C)
+        C_det = np.product(eig_values[eig_values > 1e-12])
         C_inv = np.linalg.pinv(C)
     else:
         C_det = np.linalg.det(C)
@@ -434,11 +433,13 @@ def Assignment9():
     R, kmloss, mergeidx = kmeans_agglo(X, r)
     agglo_dendro(kmloss=kmloss, mergeidx=mergeidx, verbose=False, title='Dendro')
 
-    mpi, mu, sigma, logLik0 = em_gmm(X, k=10)
-    plot_gmm_solution(X, mu, sigma, 'EM_GMM with k=' + str(10),)
+    #mpi, mu, sigma, logLik0 = em_gmm(X, k=10)
+    #plot_gmm_solution(X, mu, sigma, 'EM_GMM with k=' + str(10),)
 
-    mpi, mu, sigma, logLik_kmeans = em_gmm(X, k=10, init_kmeans=True)
-    plot_gmm_solution(X, mu, sigma, 'EM_GMM with k=' + str(10) + ' init with k-means')
+    #mpi, mu, sigma, logLik_kmeans = em_gmm(X, k=10, init_kmeans=True)
+    #plot_gmm_solution(X, mu, sigma, 'EM_GMM with k=' + str(10) + ' init with k-means')
+
+    #use sklearn just to see how the result should look like
 
 
 
