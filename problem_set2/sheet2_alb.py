@@ -277,6 +277,98 @@ def norm_pdf(X, mu, C):
 
     return y
 
+def em_gmm(X, k, max_iter=100, init_kmeans=False, eps=1e-3):
+    """ Implements EM for Gaussian Mixture Models
+
+    Input:
+    X: (n x d) data matrix with each datapoint in one column
+    k: number of clusters
+    max_iter: maximum number of iterations
+    init_kmeans: whether kmeans should be used for initialisation
+    eps: when log likelihood difference is smaller than eps, terminate loop
+
+    Output:
+    pi: 1 x k matrix of priors
+    mu: (d x k) matrix with each cluster center in one column
+    sigma: list of d x d covariance matrices
+    """
+
+    convergence = False
+    iter = 0
+    # Read data dimensions
+    n, d = X.shape
+
+    # Init likelhood
+    likehood = 0
+    likehood_old = 0
+
+    # Initialize 1D Array of class priors all as 1/k
+    class_priors = (1/k)*np.ones(k)
+
+    # Initialize mu matrix/means by as randomly choosen data points
+    if init_kmeans:
+        mu, _, _ = kmeans(X=X, k=k, max_iter=100)
+        # Initialize all k covariance matrices as identity matrices
+        cov = np.zeros((k, d, d))
+        cov[:, :, :] = np.eye(d)
+    else:
+        random_indexes = random.sample(range(n), k)
+        mu = X[random_indexes, :]
+
+        # Initialize all k covariance matrices as identity matrices
+        cov = np.zeros((k, d, d))
+        cov[:, :, :] = np.eye(d)
+
+
+    # Keep doing E-STEP+M-STEP until convergence
+
+    while not convergence:
+        # E-STEP (Expectation) Loop over every gaussian
+        # Initialize gamma matrx without norm term
+        gamma_no_norm = np.zeros((k, n))
+        gaussians = np.zeros((k, n))
+        # Init norm term
+        norm_term = np.zeros(n)
+        for k_cur in range(k):
+            gauss_k = norm_pdf(X=X, mu=mu[k_cur, :], C=cov[k_cur, :, :])
+
+            gaussians[k_cur, :] = gauss_k
+            g = (class_priors[k_cur]) * gauss_k
+            # norm term
+            norm_term += g
+            # not norm gamma matrix for kth gaussian
+            gamma_no_norm[k_cur, :] = g
+
+        # Now we normalize every row of gamma_no_norm by norm_term to obtain gamma
+        gamma = gamma_no_norm/norm_term
+
+        # M step
+        n_gamma = np.sum(gamma, axis=1)
+        class_priors = n_gamma / n
+        mu = ((gamma @ X).T / n_gamma).T
+        # Compute the new covariances
+        for k_cur in range(k):
+            total_matrix = ((X - mu[k_cur, :]).T) * gamma[k_cur, :]
+            # New cov matrix
+            cov[k_cur, :, :] = (1 / n_gamma[k_cur]) * (total_matrix @ total_matrix.T)
+
+        # Compute new likelihood
+        likehood = np.sum(gamma*((np.log(gaussians.T) + np.log(class_priors)).T))
+
+        # Print information
+        #print('Iteration:{}, log-likehood:{}'.format(iter, likehood))
+        #print('------------------')
+        # Check convergence (1) if max number of iterations has been reached or (2) log-likelihood does not change
+        iter += 1
+        if iter == max_iter:
+            break
+        elif (np.abs(likehood - likehood_old) < eps):
+            #print('same likehoods')
+            break
+
+        likehood_old = likehood
+
+    return class_priors, mu , cov, likehood
 #################### Example ####################################################################################
 #X = np.array([[0., 1., 1., 10., 10.25, 11., 10., 10.25, 11.], [0., 0., 1.,  0.,   0.5,  0.,  5.,   5.5,  5.]]).T
 X = np.zeros((20, 2))
