@@ -7,11 +7,10 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D  # for when you create your own dendrogram
 import scipy.io as spio          #used to lod .mat dataset
 import random
-np.random.seed(2020)
-
+#np.random.seed(2020)
 
 #Assignment 1
-def kmeans(X, k, max_iter=100, plotData=False):
+def kmeans_(X, k, max_iter=100, plotData=False):
     """ Performs k-means clustering
     Input:
     X: (n x d) data matrix with each datapoint in one column
@@ -30,7 +29,6 @@ def kmeans(X, k, max_iter=100, plotData=False):
     for j in range(max_iter):
         #Compute distance to every centroid
         distances = cdist(X, mu, 'euclidean')
-
         # Assign data to closest centroid
         r_prim = r.copy()
         r = np.argmin(distances, axis=1)
@@ -43,6 +41,44 @@ def kmeans(X, k, max_iter=100, plotData=False):
         #print('Iterations: {}, Memberships changed:{}, Loss:{}'.format(j, diff, loss))
         if diff == 0:   # cluster memberships which changed
             break
+
+    if plotData:
+        plt.scatter(X[:, 0], X[:, 1], s=100, c=r)
+        plt.scatter(mu[:, 0], mu[:, 1], marker='*', c='g', s=150)
+        plt.show()
+
+    return mu, r, loss
+
+def kmeans(X, k, max_iter=100, plotData=False):
+    """ Performs k-means clustering
+    Input:
+    X: (n x d) data matrix with each datapoint in one column
+    k: number of clusters
+    max_iter: maximum number of iterations
+    Output:
+    mu: (k x d) matrix with each cluster center in one column
+    r: assignment vector
+    """
+    n,d = np.shape(X)
+    #Randomly initialize centroids as data points
+    random_indexes = random.sample(range(n), k)
+    mu = X[random_indexes, :]
+    r = np.zeros(n)
+    loss = 0
+    for j in range(max_iter):
+        #Compute distance to every centroid
+        distances = cdist(X, mu, 'euclidean')
+        # Assign data to closest centroid
+        r_prim = r.copy()
+        r = np.argmin(distances, axis=1)
+        loss = np.sum(distances[np.arange(n), r] ** 2)
+        if (r == r_prim).all():
+            break
+        # Compute new cluster center
+        for i in range(k): #Handle empty cluster by reinitializing them at a random data point if cluster is empty
+            mu[i] = np.mean(X[r == i], axis=0) if i in r else X[np.random.randrange(n), :]
+
+        #print('Iterations: {},  Loss:{}'.format(j, loss))
 
     if plotData:
         plt.scatter(X[:, 0], X[:, 1], s=100, c=r)
@@ -92,7 +128,7 @@ def kmeans_agglo(X, r, verbose = False):
     #r = [i for i in range(X.shape[0])] #this is just for test, comment this line, to get the r from parameters
     r = np.array(r)
     R, kmloss, mergeidx = [], [], []
-    R.append(r)
+    R.append(r.copy())
     centroids = compute_New_Centroids(X,r)
     kmloss.append(cdist(X, centroids, 'euclidean').sum())
     #kmloss.append(kmeans_crit(X=X, r=r, mu=centroids))
@@ -105,11 +141,10 @@ def kmeans_agglo(X, r, verbose = False):
         u = np.unique(r)
         r[np.where(r == u[min_idx[1]])] = u[min_idx[0]]
         mergeidx.append([u[min_idx[0]], u[min_idx[1]]]) #save merged indexes
-        R.append(r) #save current assignment vector
+        R.append(r.copy()) #save current assignment vector
         centroids = compute_New_Centroids(X, r)
         kmloss.append(round(cdist(X, centroids, 'euclidean').sum(),2))  # save distance loss
         #kmloss.append(np.round((kmeans_crit(X=X, r=r, mu=centroids)),2))
-
         m = len(centroids)
 
         #print('mergeidx ', mergeidx)
@@ -178,12 +213,14 @@ def agglo_dendro(kmloss, mergeidx, verbose = False, title='', ax=None):
 
         MyDict[c1]['x'] = center[0]
         MyDict[c1]['y'] = center[1]
-        MyDict[c1]['label'] = '({0},{1})'.format(MyDict[c1]['label'], MyDict[c2]['label'])
+        #MyDict[c1]['label'] = '({0},{1})'.format(MyDict[c1]['label'], MyDict[c2]['label'])
+        MyDict[c1]['label'] = '{0}'.format(MyDict[c1]['label'])
 
         ax.text(*center, MyDict[c1]['label']) #plot label to new cluster
 
     if UseSortedLabel:
         ax.set_xticks(np.arange(len(m)), [str(mi) for mi in m])
+        plt.xticks(np.arange(len(m)), [str(mi) for mi in m])
     #ax.set_yticks([], [])
     ax.set_title(title)
     if ps2_test:
@@ -241,6 +278,7 @@ def em_gmm(X, k, max_iter=100, init_kmeans=False, eps=1e-3, Iterations = False):
         print('Init by random ')
         rand_row = np.random.randint(low=0, high=n, size=k)
         mu = np.asmatrix([X[row_idx, :] for row_idx in rand_row])
+
     sigma = np.array([np.eye(d) for _ in range(k)])
     mpi = np.ones(k) / k
     g = np.full((n, k), fill_value=1 / k) #gamma
@@ -297,9 +335,9 @@ def plot_gmm_solution(X, mu, sigma, title='', ax=None):
     if ax is None:
         ps2_test = True
         fig, ax = plt.subplots(figsize=(6, 6))
-
     ax.scatter(X[:, 0], X[:, 1], s=50, c='tab:blue')
-    ax.scatter(mu[:, 0].A1, mu[:, 1].A1, c='r', s=150, marker='x',lw=2)
+    #ax.scatter(mu[:, 0].A1, mu[:, 1].A1, c='r', s=150, marker='x',lw=2)
+    ax.scatter( np.ravel(mu[:, 0]), np.ravel(mu[:, 1]), c='r', s=150, marker='x', lw=2)
     t = np.linspace(0, 2 * np.pi, 100)
     for i in range(np.shape(mu)[0]):
         u = mu[i,0]  # x-position center
@@ -429,33 +467,62 @@ def Assignment9():
     mu, r, loss = kmeans(X, k=10)
     plt.scatter(X[:, 0], X[:, 1], s=30, c=r, cmap=plt.cm.nipy_spectral)
     plt.scatter(mu[:, 0], mu[:, 1], marker='*', c='r', zorder=2, s=200, lw=3, cmap=plt.cm.nipy_spectral)
+    plt.show()
+    print('K-means result, mu:{}, loss:{}'.format(np.shape(mu), loss))
+
+    for i in range(10):
+        plt.subplot(2, 5, i+1)
+        plt.imshow(mu[i,:].reshape(16, 16), cmap=plt.cm.Greys)
+        plt.axis('off')
+    plt.suptitle('K-means centroids')
+    plt.show()
 
     R, kmloss, mergeidx = kmeans_agglo(X, r)
     agglo_dendro(kmloss=kmloss, mergeidx=mergeidx, verbose=False, title='Dendro')
+    #print('mergeidx: ', np.shape(mergeidx))
+    #print('kmloss: ', np.shape(kmloss))
+    #print('R: ', np.shape(R))
 
-    #mpi, mu, sigma, logLik0 = em_gmm(X, k=10)
-    #plot_gmm_solution(X, mu, sigma, 'EM_GMM with k=' + str(10),)
+    #plot the cluster centroidsas a 16 × 16 image at every agglomerative step
+    for i in range(len(kmloss)-1): #len(kmloss)
+        r = R[i]
+        plt.figure()
 
-    #mpi, mu, sigma, logLik_kmeans = em_gmm(X, k=10, init_kmeans=True)
+        first = np.mean(X[r == mergeidx[i][0]], axis=0) #first cluster
+        plt.subplot(1, 3, 1)
+        plt.imshow(first.reshape(16, 16), cmap=plt.cm.Greys)
+        plt.axis('off')
+        plt.title('First cluster--->')
+
+        second = np.mean(X[r == mergeidx[i][1]], axis=0) #second cluster
+        plt.subplot(1, 3, 3)
+        plt.imshow(second.reshape(16, 16), cmap=plt.cm.Greys)
+        plt.title('<---Second cluster')
+        plt.axis('off')
+
+        result = first + second #resulted cluster
+        plt.subplot(1, 3, 2)
+        plt.imshow(result.reshape(16, 16), cmap=plt.cm.Greys)
+        plt.title('>Resulted cluster<')
+        plt.axis('off')
+
+        plt.suptitle('Agglomerative step:{}'.format(i+1))
+
+        #print('first ', np.shape(first))
+        #print('second ', np.shape(second))
+        #print('mergeidx[i] ', mergeidx[i])
+        #print('unique ', np.unique(r))
+        #print('result ', np.shape(result))
+
+    plt.show()
+
+    #This part crashes -> matrix singular -> not invertible
+    mpi, mu, sigma, logLik_kmeans = em_gmm(X, k=10, init_kmeans=True)
     #plot_gmm_solution(X, mu, sigma, 'EM_GMM with k=' + str(10) + ' init with k-means')
 
-    #use sklearn just to see how the result should look like
-
-
-
-    print('K-means result, mu:{}, loss:{}'.format(np.shape(mu), loss))
-    print('mergeidx: ',np.shape(mergeidx))
-    print('kmloss: ',np.shape(kmloss))
-    keys = range(len(kmloss))
-    fig, ax = plt.subplots()
-    #for i in keys:
-    #    print(i)
-        #given X and r -> get the centroids
-        #reshape to 16
-        #plot them as images on  5x2 figure
-
     #mpi, mu, sigma, _ = em_gmm(X, k=10)  #returns problem, matrix is singular -> not invertible
-    #print('EM_GMM result, mpi:{}, mu:{}'.format(np.shape(mpi), np.shape(mu)))
+    #plot_gmm_solution(X, mu, sigma, 'EM_GMM with k=' + str(10) + ' init random')
+
 
 def gammaidx(X, k):
     def euclid_dist(x1, x2):
@@ -513,7 +580,7 @@ def Assignment10():
     ax.scatter(X[:, 0], X[:, 1], X[:, 2], c=Y, s=20,edgecolor='k')
 
     #2) em_gmm
-    mpi, mu, sigma, logLik = em_gmm(X, k=3, init_kmeans=False) #problem  with init_kmeans=True
+    mpi, mu, sigma, logLik = em_gmm(X, k=3, init_kmeans=True)
     print('EM_GMM result, mpi:{}, mu:{}, sigma:{}, logLik:{}'.format(np.shape(mpi), np.shape(mu),np.shape(sigma),logLik))
     ax.scatter(mu[:, 0], mu[:, 1], mu[:, 2], c='r', marker='o', s=200, edgecolor='k')
 
@@ -522,35 +589,36 @@ def Assignment10():
     #I used sklearn just to compare with my own implementation, delete it later
     AUC_history = [] #AUC own
     AUC_history2 = [] #AUC with sklearn
-    for i in range(1,15): #neighbors for gamma
+    for i in range(2,10): #neighbors for gamma
         print(i)
         gamma = gammaidx(X, k=i)
-        c, tpr, fpr = auc(y_true=Y, y_pred=gamma)
+        c, _, _ = auc(y_true=Y, y_pred=gamma)
         AUC_history.append(c)
         AUC_history2.append(roc_auc_score(Y, gamma))
 
+
     fig, axs = plt.subplots()
-    plt.plot(range(1,15),AUC_history, label='AUC')
+    plt.plot(range(2,10),AUC_history, label='AUC')
     axs.set_title('gammaidx & AUC ')
     axs.set_xlabel(r'$k$')
     axs.set_ylabel(r'$AUC$')
     plt.legend()
 
     fig, axs = plt.subplots()
-    plt.plot(range(1, 15), AUC_history2, label='AUC 2')
+    plt.plot(range(2, 10), AUC_history2, label='AUC 2')
     axs.set_title('gammaidx & AUC using sklearn')
     axs.set_xlabel(r'$k$')
     axs.set_ylabel(r'$AUC $')
     plt.legend()
 
     #4)
-    fig, axs = plt.subplots()
+    '''fig, axs = plt.subplots()
     gamma = gammaidx(X, k=2)
     c, tpr, fpr = auc(y_true=Y, y_pred=gamma)
     plt.plot(fpr, tpr, label="ROC, AUC score:" + str(c))
     plt.xlabel('False Positive Rate')
     plt.ylabel('True Positive Rate')
-    plt.legend()
+    plt.legend()'''
 
     #------------------------------------------
 
