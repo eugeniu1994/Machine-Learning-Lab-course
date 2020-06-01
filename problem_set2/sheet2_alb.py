@@ -1,20 +1,3 @@
-""" ps2_implementation.py
-
-PUT YOUR NAME HERE:
-<Alberto_Gonzalo><Rodriguez_Salgado>
-
-Write the functions
-- kmeans
-- kmeans_agglo
-- agglo_dendro
-- norm_pdf
-- em_gmm
-- plot_gmm_solution
-
-(c) Felix Brockherde, TU Berlin, 2013
-    Translated to Python from Paul Buenau's Matlab scripts
-"""
-
 from __future__ import division  # always use float division
 import numpy as np
 from scipy.spatial.distance import cdist  # fast distance matrices
@@ -23,8 +6,12 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D  # for when you create your own dendrogram
 import random
 from itertools import combinations_with_replacement
+from matplotlib.pyplot import cm
+import scipy.io as spio
+import scipy as sp
+from scipy.stats import multivariate_normal
 
-def kmeans(X, k, max_iter=100):
+def kmeans(X, k, max_iter=100, init_total_random=False):
     """ Performs k-means clustering
     Input:
     X: (n x d) data matrix with each datapoint in one column
@@ -39,6 +26,14 @@ def kmeans(X, k, max_iter=100):
     #Randomly initialize centroids as data points
     random_indexes = random.sample(range(n), k)
     mu = X[random_indexes, :]
+    print(mu.shape)
+    # Randomly initialize centroids by total random numbers for 2D data
+    if init_total_random:
+        x_max = np.max(X[:, 0])
+        y_max = np.max(X[:, 1])
+
+        mu = (x_max + y_max)/2 * np.random.rand(k, d)
+
 
     mu_old = np.zeros(mu.shape)  # store old centroids
     r = np.zeros(n)
@@ -59,6 +54,8 @@ def kmeans(X, k, max_iter=100):
 
         print('Iterations: {},  Loss:{}'.format(j, loss))
 
+    print('Final loss: {}'.format(loss))
+    print('------')
 
     if plot:
         for i in range(n):
@@ -66,323 +63,238 @@ def kmeans(X, k, max_iter=100):
         plt.scatter(mu[:, 0], mu[:, 1], marker='*', c='g', s=150)
         plt.show()
 
-
     return mu, r, loss
 
-def new_centroids(X, r, k):
-    """ Computes new cenctroids matrix for a given dataset and its correspondent assignment vector.
-        Handle empty cluster by reinitializing them at a random data point
-
-    Input:
-    X: (n x d) data matrix
-    r: (nx1) array/vector , assignment vector indicating to which cluster every datapoint be longs
-    k: int, number of clusters
-
-    Output:
-    mu: (kxd) array, with the k- new centroids, with the kth cetroid corresponding to the kth cluster
-    """
-    n, d = X.shape
-    # Compute new cluster center
-    mu = np.zeros((k, d))
-    for i in range(k):
-        if i in r:
-            # In this case the cluster is not empty and we can compute the new centroid as usual
-            mu[i] = np.mean(X[r == i], axis=0)
-        else:
-            # In this case the cluster is empty and we reinitialize the cluster at some random data point
-            mu[i] = X[random.randrange(n), :]
-
-    return mu
-########################################################################################################################
-def new_centroids_agglo(X, r, k):
-    """ Computes new cenctroids matrix for a given dataset and its correspondent assignment vector.
-        Handle empty cluster by reinitializing them at a random data point
-
-    Input:
-    X: (n x d) data matrix
-    r: (nx1) array/vector , assignment vector indicating to which cluster every datapoint be longs
-    k: int, number of clusters
-
-    Output:
-    mu: (kxd) array, with the k- new centroids, with the kth cetroid corresponding to the kth cluster
-    """
-    n, d = X.shape
-    # Compute new cluster center
-    mu = np.zeros((k, d))
-
-    for indx, i in enumerate(np.unique(r)):
-        # In this case the cluster is not empty and we can compute the new centroid as usual
-        mu[indx] = np.mean(X[r == i], axis=0)
-
-    return mu
-
-
-def kmeans_agglo(X, r):
-    """ Performs agglomerative clustering with k-means criterion
-
-    Input:
-    X: (n x d) data matrix with each datapoint in one column
-    r: assignment vector
-
-    Output:
-    R: (k-1) x n matrix that contains cluster memberships before each step
-    kmloss: vector with loss after each step
-    mergeidx: (k-2) x 2 matrix that contains merge idx for each step
-    """
-    def kmeans_crit(X, r, mu):
-        """ Computes k-means criterion
-
-        Input: 
-        X: (n x d) data matrix with each datapoint in one column
-        r: assignment vector
-
-        Output:
-        value: scalar for sum of euclidean distances to cluster centers
-        """
-        # Init loss value
-        distances = cdist(X, mu, 'euclidean')
-        clusters = np.unique(r)
-        loss = 0
-        for j in range(n):
-            loss += distances[j, np.argwhere(clusters == r[j])]**2
-
-        return loss
-
-    # Compute clusters set
-    c = compute_C_set(r)
-    k = len(c)
-    n, d = X.shape
-    # Init return arrays
-    R = np.zeros(((k), n))
-    kmloss = np.zeros(k)
-    mergeidx = np.zeros((k-1, 2), dtype='int')
-    # Compute centroids
-    mu = new_centroids_agglo(X=X, r=r, k=k)
-
-    # Compute L loss value for the initial clustering
-    kmloss[0] = kmeans_crit(X=X, r=r, mu=mu)
-    R[0, :] = r
-
-    new_cluster_idx = n
-
-    for j in range(k-1):
-        # compute all possible 2 cluster merge combinations
-        clust_comb = list(combinations_with_replacement(c, 2))
-
-        #  Now we need to compute the loss value for every merge combination and take the max one
-        loss_local = np.zeros(len(clust_comb))
-        for index, merge_pair in enumerate(clust_comb):
-            # Avoid (0,0), (1,1) etc merges
-            if merge_pair[0] == merge_pair[1]:
-                loss_local[index] = np.inf
-            else:
-                # Generate new merged cluster
-                r_merged = r.copy()
-                r_merged[np.argwhere(r == merge_pair[0])] = merge_pair[1]
-                # Compute new centroids for the merged cluster
-                mu_new = new_centroids_agglo(X=X, r=r_merged, k=(len(c)-1))
-                # Compute loss
-                loss_local[index] = kmeans_crit(X=X, r=r_merged, mu=mu_new)
-
-        # Compute min L of all merge options
-        L_min = np.min(loss_local)
-        kmloss[j+1] = L_min
-        # Get merge clusters min
-        min_merge_clusters = clust_comb[int(np.argwhere(loss_local == L_min)[0])]
-        r_min = r
-        r_min[np.argwhere(r == min_merge_clusters[0])] = new_cluster_idx
-        r_min[np.argwhere(r == min_merge_clusters[1])] = new_cluster_idx
-        R[j+1, :] = r_min
-        mergeidx[j, :] = np.asarray(min_merge_clusters)
-
-        # Update
-        r = r_min
-        c = compute_C_set(r=r)
-
-        new_cluster_idx += 1
-    return R, kmloss, mergeidx
-
-def compute_C_set(r):
-    """  Computes the set of clusters
-
-    Input:
-    r: 1D array, assignment vector
-
-    Output:
-    c : 1D array, contains all possible clusters ordered
-    """
-    c = np.unique(r)
-    return c
-
-
-def agglo_dendro(kmloss, mergeidx):
-    """ Plots dendrogram for agglomerative clustering
-
-    Input:
-    kmloss: vector with loss after each step
-    mergeidx: (k-1) x 2 matrix that contains merge idx for each step
-    """
-
-    # Build Z for the dendogram
-    Z = np.zeros((mergeidx.shape[0], 4))
-
-    Z[:, 3] = 1
-    Z[:, :2] = mergeidx
-    Z[:, 2] = kmloss[1:]
-
-    print(Z)
-    plt.title('Hierarchical Clustering Dendrogram (truncated)')
-    plt.xlabel('sample index or (cluster size)')
-    plt.ylabel('distance')
-    dendrogram(Z)
-    plt.show()
-    
-############################# Multivariate Gaussian distribution############################################################
 def norm_pdf(X, mu, C):
     """ Computes probability density function for multivariate gaussian
-
     Input:
-    X: (n x d) data matrix with each datapoint in one column
+    X: (n x d) data matrix with each datapoint
     mu: vector for center
     C: covariance matrix
-
     Output:
     pdf value for each data point
     """
-    n, d = X.shape
-    # We can always use pinv since pinv(C)=inv(C) for non singular matrices
-    # In the case C is singular, pinv can handle it
-    # solve is mainly used to solve linear systems as Cx=b and returns b
-    C_inv = np.linalg.pinv(C)
-    # In the case C is singular, we compute the pseudo-determinant, since the determinant of C =0 and we would not be
-    # able to divide by it when computing the gaussian distribution
-
-    # The pseudo determinantis the product of all non-zero eigenvalues of a square matrix. It coincides with the regular
-    # determinant when the matrix is non-singular.
-    if np.linalg.det(C) == 0:
-        eig_values = np.linalg.eig(C)
-        C_det = np.product(eig_values[eig_values > 1e-12])
-
+    d = np.shape(X)[1]
+    #determinant when the matrix is non-singular.
+    if np.linalg.det(C) == 0: #pseudo determinant
+        #print('Matrix is not invertible')
+        eig_values = np.linalg.eigh(C) # np.linalg.eig(C)
+        C_det = 1.0
+        for i in range(len(eig_values)):
+            C_det *= np.product(eig_values[i][eig_values[i] > 1e-12])
+        #C_det = np.product(eig_values[eig_values > 1e-12])      # this gives:TypeError: '>' not supported between instances of 'tuple' and 'float'
+        C_inv = np.linalg.pinv(C)
     else:
         C_det = np.linalg.det(C)
+        C_inv = np.linalg.inv(C)
 
-    # Compute Q and terms of the multivariate Gaussian distribution: a*exp(Q)
-    X_mu = X - mu
+    down = np.sqrt((2 * np.pi) ** d * C_det) # , #down = ((2 * np.pi) ** d/2) * np.sqrt(C_det)
+    up = -np.einsum('...i,ij,...j->...', X - mu, C_inv, X - mu)/2  #  einsum (x-mu)T.Sigma-1.(x-mu)
+    pdf = np.exp(up) / down
 
-    Q = -0.5 *((X_mu) @ C_inv @ (X_mu.T))
-    a = 1/(np.sqrt((2*np.pi)**d * C_det))
+    return pdf
 
-    # Compute final gaussian values
-    y = a * np.exp(Q)
-
-    return y
-
-def em_gmm(X, k, max_iter=100, init_kmeans=False, eps=1e-3):
+def em_gmmv(X, k, max_iter=100, init_kmeans=False, eps=1e-3, Iterations = False):
     """ Implements EM for Gaussian Mixture Models
+        Input:
+        X: (n x d) data matrix
+        k: number of clusters
+        max_iter: maximum number of iterations
+        init_kmeans: whether kmeans should be used for initialisation
+        eps: when log likelihood difference is smaller than eps, terminate loop
+        Output:
+        mpi: 1 x k matrix of priors
+        mu: (k x d) matrix with each cluster center in one column
+        sigma: list of d x d covariance matrices
+    """
+    n,d = np.shape(X)
+    if init_kmeans:
+        print('Init by k-means ')
+        mu, _, _ = kmeans(X, k=k)
+        mu = np.asmatrix(mu)
+    else:
+        print('Init by random ')
+        rand_row = np.random.randint(low=0, high=n, size=k)
+        mu = np.asmatrix([X[row_idx, :] for row_idx in rand_row])
+    sigma = np.array([np.eye(d) for _ in range(k)])
+    mpi = np.ones(k) / k
+    g = np.full((n, k), fill_value=1 / k) #gamma
 
+    logLik = 1.0
+    prev_logLik = 0
+
+    def Step_E():
+        logLik = 0
+        for j in range(k):
+            pdf = norm_pdf(X, np.ravel(mu[j, :]), sigma[j, :])
+            g[:, j] = pdf
+            logLik += np.log(pdf.sum())
+        up = g * mpi
+        down = up.sum(axis=1)[:, np.newaxis]
+        g[:,:] = up / down
+        return logLik
+
+    def Step_M():
+        for j in range(k):
+            nk = g[:, j].sum()
+            mpi[j] = nk/n
+
+            sigma_j = np.zeros((d, d))
+            for i in range(n):
+                sigma_j += g[i, j] * ((X[i, :] - mu[j, :]).T * (X[i, :] - mu[j, :]))
+
+            mu[j] = (X * g[:,j][:, np.newaxis]).sum(axis=0) / nk
+            sigma[j] = sigma_j / nk
+
+    iter = 0
+    while (abs(logLik - prev_logLik) > eps and iter < max_iter):
+        prev_logLik = logLik
+
+        logLik=Step_E()
+        Step_M()
+
+        iter += 1
+        #print('Iter:{},  log-likelihood:{}, error:{}'.format(iter,logLik,abs(logLik - prev_logLik)))
+    print('Finished at {} iter, Log-likelihood:{}'.format(iter,logLik))
+    if Iterations:
+        return mpi, mu, sigma, logLik, iter
+    return mpi, mu, sigma, logLik
+
+def plot_gmm_solution(X, mu, sigma, title='', ax=None):
+    """ Plots covariance ellipses for GMM
     Input:
-    X: (n x d) data matrix with each datapoint in one column
-    k: number of clusters
-    max_iter: maximum number of iterations
-    init_kmeans: whether kmeans should be used for initialisation
-    eps: when log likelihood difference is smaller than eps, terminate loop
-
-    Output:
-    pi: 1 x k matrix of priors
-    mu: (d x k) matrix with each cluster center in one column
+    X: (n x d) data matrix
+    mu: (k x d) matrix
     sigma: list of d x d covariance matrices
     """
+    ps2_test = False
+    if ax is None:
+        ps2_test = True
+        fig, ax = plt.subplots(figsize=(6, 6))
 
-    convergence = False
-    iter = 0
-    # Read data dimensions
-    n, d = X.shape
+    ax.scatter(X[:, 0], X[:, 1], s=50, c='tab:blue')
+    ax.scatter(mu[:, 0].A1, mu[:, 1].A1, c='r', s=150, marker='x',lw=2)
+    t = np.linspace(0, 2 * np.pi, 100)
+    for i in range(np.shape(mu)[0]):
+        u = mu[i,0]  # x-position center
+        v = mu[i,1] # y-position center
 
-    # Init likelhood
-    likehood = 0
-    likehood_old = 0
+        p= .9
+        s = -2 * np.log(1 - p)
+        #print(sigma)
+        D,V = np.linalg.eig(sigma[i] * s)
+        a = (V * np.sqrt(D)) @ [np.cos(t), np.sin(t)]
+        ax.plot(a[0,:] + u, a[1,:] + v, c='g',lw=2)
 
-    # Initialize 1D Array of class priors all as 1/k
-    class_priors = (1/k)*np.ones(k)
+    ax.set_title(title)
+    ax.grid(color='lightgray', linestyle='--')
+    custom_lines = [Line2D([0], [0], color='tab:blue', lw=1, marker='o'),
+                    Line2D([0], [0], color='g', lw=4),
+                    Line2D([0], [0], color='r', lw=1, marker='x')]
+    ax.legend(custom_lines, ['Data points', 'GMM Covariance', 'Mean vectors'])
+    if ps2_test:
+        plt.show()
 
-    # Initialize mu matrix/means by as randomly choosen data points
-    if init_kmeans:
-        mu, _, _ = kmeans(X=X, k=k, max_iter=100)
-        # Initialize all k covariance matrices as identity matrices
-        cov = np.zeros((k, d, d))
-        cov[:, :, :] = np.eye(d)
-    else:
-        random_indexes = random.sample(range(n), k)
-        mu = X[random_indexes, :]
+def Assignment8():
+    # Set params
+    k_means=False
+    gmm = True
+    vis_data = True
+    vis_loss = True
+    manipulate_data = False
+    k = 2
+    rep = 1000
 
-        # Initialize all k covariance matrices as identity matrices
-        cov = np.zeros((k, d, d))
-        cov[:, :, :] = np.eye(d)
+    # Load 2_gaussians dataset
+    gaussians = np.load('../data/2_gaussians.npy')
+    X = gaussians.T
 
+    # Visualize  data
+    if manipulate_data:
+        indexes_up = np.argwhere(X[:, 1]>0.08)
+        indexes_down = np.argwhere(X[:, 1] <= 0.08)
+        X_up = np.squeeze(X[indexes_up, :])
+        X_up[:,1] = X_up[:,1] + 0
+        X_down = np.squeeze(X[indexes_down, :])
 
-    # Keep doing E-STEP+M-STEP until convergence
+        mu_var = np.zeros((2,2))
+        mu_up = np.mean(X_up, axis=0)
+        mu_down = np.mean(X_down, axis=0)
+        mu_var[0, :] = mu_up
+        mu_var[1, :] = mu_down
 
-    while not convergence:
-        # E-STEP (Expectation) Loop over every gaussian
-        # Initialize gamma matrx without norm term
-        gamma_no_norm = np.zeros((k, n))
-        gaussians = np.zeros((k, n))
-        # Init norm term
-        norm_term = np.zeros(n)
-        for k_cur in range(k):
-            gauss_k = norm_pdf(X=X, mu=mu[k_cur, :], C=cov[k_cur, :, :])
+        # Calculate loss
 
-            gaussians[k_cur, :] = gauss_k
-            g = (class_priors[k_cur]) * gauss_k
-            # norm term
-            norm_term += g
-            # not norm gamma matrix for kth gaussian
-            gamma_no_norm[k_cur, :] = g
+        loss = np.sum(cdist(XA=X_up,XB=mu_up[np.newaxis, :])**2) + np.sum(cdist(XA=X_down,XB=mu_down[np.newaxis, :])**2)
+        print('Kmeans loss with a "perfect" separation: {}'.format(loss))
 
-        # Now we normalize every row of gamma_no_norm by norm_term to obtain gamma
-        gamma = gamma_no_norm/norm_term
+        # Plot "perfect" separation
+        figp, axep = plt.subplots(figsize=(7, 5))
+        axep.scatter(X_up[:, 0], X_up[:, 1], c='red')
+        axep.scatter(X_down[:, 0], X_down[:, 1], c='blue')
+        axep.scatter(mu_var[:, 0], mu_var[:, 1], marker='*', c='orange', s=200)
+        axep.set_xlabel('x', fontsize=12)
+        axep.set_ylabel('y', fontsize=12)
+        plt.tick_params(axis='both', which='major', labelsize=11)
+        plt.tick_params(axis='both', which='minor', labelsize=10)
 
-        # M step
-        n_gamma = np.sum(gamma, axis=1)
-        class_priors = n_gamma / n
-        mu = ((gamma @ X).T / n_gamma).T
-        # Compute the new covariances
-        for k_cur in range(k):
-            total_matrix = ((X - mu[k_cur, :]).T) * gamma[k_cur, :]
-            # New cov matrix
-            cov[k_cur, :, :] = (1 / n_gamma[k_cur]) * (total_matrix @ total_matrix.T)
+        #X[indexes_up, 1] = X[indexes_up, 1]
 
-        # Compute new likelihood
-        likehood = np.sum(gamma*((np.log(gaussians.T) + np.log(class_priors)).T))
-
-        # Print information
-        #print('Iteration:{}, log-likehood:{}'.format(iter, likehood))
-        #print('------------------')
-        # Check convergence (1) if max number of iterations has been reached or (2) log-likelihood does not change
-        iter += 1
-        if iter == max_iter:
-            break
-        elif (np.abs(likehood - likehood_old) < eps):
-            #print('same likehoods')
-            break
-
-        likehood_old = likehood
-
-    return class_priors, mu , cov, likehood
-#################### Example ####################################################################################
-#X = np.array([[0., 1., 1., 10., 10.25, 11., 10., 10.25, 11.], [0., 0., 1.,  0.,   0.5,  0.,  5.,   5.5,  5.]]).T
-X = np.zeros((20, 2))
-
-X[:10, :]     = 0.1*np.random.randn(10, 2) + np.array([1, 1])
-X[10:15, :] = 0.1*np.random.randn(5, 2) + np.array([2, 1])
-X[15:, :]    = 0.1*np.random.randn(5, 2) + np.array([1.5, 2])
-
-#plt.scatter(X[:,0], X[:, 1])
-
-k = 20
-mu, r, loss = kmeans(X=X, k=k, max_iter=100)
+    if vis_data:
+        fig1, axe1 = plt.subplots(figsize=(7, 5))
+        axe1.scatter(X[:, 0], X[:, 1])
 
 
-R, kmloss, merge = kmeans_agglo(X=X, r=r)
+    # KMEANS ANALYZE
+    losses = np.zeros(rep)
+    for rep_cur in range(rep):
+        if k_means:
+            mu, r, loss = kmeans(X, k=k, init_total_random=False)
 
-agglo_dendro(mergeidx=merge, kmloss=kmloss)
+        elif gmm:
+            mpi, mu, sigma, loss, Iterations_kmeans = em_gmmv(X, k=k, init_kmeans=False, Iterations=True)
+
+        else:
+            print('ERROR')
+
+        losses[rep_cur] = loss
+        # plot min loss kmeans
+
+
+        if loss > 7.32: # so cause we know the max is at 7.33
+            if k_means:
+                plt.figure(num='Global Minima kmeans', figsize=(5, 5))
+                ax = plt.gca()
+                ax.scatter(X[r == 1, 0], X[r == 1, 1], c='red')
+                ax.scatter(X[r == 0, 0], X[r == 0, 1], c='blue')
+                ax.scatter(mu[:, 0], mu[:, 1], marker='*', c='orange', s=200)
+                break
+            elif gmm:
+                plot_gmm_solution(X=X, mu=mu, sigma=sigma, title='Global Maxima GMM', ax=None)
+                break
+            else:
+                print('ERROR')
+
+    if vis_loss:
+        plt.figure(num='Loss kmeans', figsize=(7, 5))
+        ax = plt.gca()
+        ax.plot(np.arange(rep), np.sort(losses))
+        ax.set_xlabel('Computation', fontsize=12)
+        ax.set_ylabel('GMM Log-likelihood', fontsize=12)
+        plt.tick_params(axis='both', which='major', labelsize=11)
+        plt.tick_params(axis='both', which='minor', labelsize=10)
+
+        if k_means:
+            print('----')
+            print('Min loss: {}'.format(np.min(losses)))
+            print('----')
+
+        elif gmm:
+            print('----')
+            print('Max log-likelihood: {}'.format(np.max(losses)))
+            print('----')
+
+        else:
+            print('ERROR')
+
+Assignment8()
