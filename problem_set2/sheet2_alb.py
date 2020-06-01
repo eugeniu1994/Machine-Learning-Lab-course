@@ -65,6 +65,31 @@ def kmeans(X, k, max_iter=100, init_total_random=False):
 
     return mu, r, loss
 
+def new_centroids(X, r, k):
+    """ Computes new cenctroids matrix for a given dataset and its correspondent assignment vector.
+        Handle empty cluster by reinitializing them at a random data point
+
+    Input:
+    X: (n x d) data matrix
+    r: (nx1) array/vector , assignment vector indicating to which cluster every datapoint be longs
+    k: int, number of clusters
+
+    Output:
+    mu: (kxd) array, with the k- new centroids, with the kth cetroid corresponding to the kth cluster
+    """
+    n, d = X.shape
+    # Compute new cluster center
+    mu = np.zeros((k, d))
+    for i in range(k):
+        if i in r:
+            # In this case the cluster is not empty and we can compute the new centroid as usual
+            mu[i] = np.mean(X[r == i], axis=0)
+        else:
+            # In this case the cluster is empty and we reinitialize the cluster at some random data point
+            mu[i] = X[random.randrange(n), :]
+
+    return mu
+
 def norm_pdf(X, mu, C):
     """ Computes probability density function for multivariate gaussian
     Input:
