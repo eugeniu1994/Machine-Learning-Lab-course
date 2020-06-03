@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D  # for when you create your own dendrogram
 import scipy.io as spio  # used to lod .mat dataset
 import random
+import matplotlib.cm as cmx
 
 # np.random.seed(2020)
 
@@ -254,6 +255,25 @@ def norm_pdf(X, mu, C):
     #s = np.linalg.solve(C,t)
     #print('s ', np.shape(s))
     pdf = np.exp(up) / down
+
+    import scipy.sparse.linalg as spln
+    import scipy.sparse as sp
+    def lognormpdf(x, mu, S):
+        """ Calculate gaussian probability density of x, when x ~ N(mu,sigma) """
+        nx = len(S)
+        norm_coeff = nx * np.math.log(2 * np.math.pi) + np.linalg.slogdet(S)[1]
+
+        err = (x - mu).T
+        print('S shape is:{}, err:{}'.format(np.shape(S), np.shape(err)))
+        if (sp.issparse(S)):
+            numerator = spln.spsolve(S, err).T.dot(err)
+        else:
+            numerator = np.linalg.solve(S, err).T.dot(err)
+
+        return -0.5 * (norm_coeff + numerator)
+
+    #pdf = (lognormpdf(X,mu,C))
+
     return pdf
 
 # Assignment 5
@@ -304,22 +324,8 @@ def em_gmm_(X, k, max_iter=100, init_kmeans=False, eps=1e-3, Iterations=False):
             mu[j] = (X * g[:, j][:, np.newaxis]).sum(axis=0) / nk
             sigma[j] = sigma_j / nk
 
-    def LogLike_():
-        logLike = 0
-        for i in range(n):
-            tmp = 0
-            for j in range(k):
-                tmp += norm_pdf(X[i, :], np.ravel(mu[j, :]), sigma[j, :]) * mpi[j]
-            logLike += np.log(tmp)
-        return logLike
-
     def LogLike():
         logLike = 0
-        tmp = 0
-        for j in range(k):
-            tmp += norm_pdf(X, np.ravel(mu[j, :]), sigma[j, :]) * mpi[j]
-        logLike += np.log(tmp)
-
         for i in range(n):
             tmp = 0
             for j in range(k):
@@ -649,7 +655,7 @@ def Assignment10():
 
     def auc(y_true, y_pred, plot=False):
         fpr, tpr = [], []
-        th = np.arange(0.0, 1.1, .1)  # thresholds
+        th = np.arange(0.0, 1.1, .01)  # thresholds
         P, N = 0, 0  # positive, negative
         for cls in y_true:
             if cls > 0:
@@ -679,6 +685,28 @@ def Assignment10():
 
         return c, tpr, fpr
 
+    def plotDataAndMeans(mu, sigma, data=None):
+        def _sphere(mu,  radius, ax=None):
+            phi, theta = np.mgrid[0.0:np.pi:complex(0, 15), 0.0:2.0 * np.pi:complex(0, 15)]
+            print('radius ', radius)
+            x = 2 * radius[0] * np.sin(phi) * np.cos(theta) + mu[0]
+            y = 2 * radius[1] * np.sin(phi) * np.sin(theta) + mu[1]
+            z = 2 * radius[2] * np.cos(phi) + mu[2]
+            ax.plot_surface(x, y, z, alpha=0.3)
+            return ax
+
+        fig = plt.figure(figsize=(8, 8))
+        axes = fig.add_subplot(111, projection='3d')
+        if data is not None:
+            axes.scatter(data[:, 0], data[:, 1], data[:, 2], s=20, edgecolor='k')
+        axes.scatter(mu[0, :], mu[1, :], mu[2, :], c='r', marker='o', s=200, edgecolor='k', alpha=0.8)
+        for i in range(3):
+            if len(np.shape(sigma))==2:
+                _sphere(mu=mu[:, i], radius=sigma[:, i], ax=axes)
+            else:
+                _sphere(mu=mu[:, i], radius=sigma[i, :, i], ax=axes)
+        plt.title('GMM means')
+
     # 1. Load the data set.
     dataset = np.load('data/lab_data.npz')
     print(dataset.files)
@@ -691,44 +719,53 @@ def Assignment10():
 
     # 2) em_gmm
     mpi, mu, sigma, logLik = em_gmm(X, k=3, init_kmeans=True)
-    print('EM_GMM result, mpi:{}, mu:{}, sigma:{}, logLik:{}'.format(np.shape(mpi), np.shape(mu), np.shape(sigma),
-                                                                     logLik))
-    ax.scatter(mu[:, 0], mu[:, 1], mu[:, 2], c='r', marker='o', s=200, edgecolor='k')
+    # custom tailored outlier detection
+    px=0
+    for j in range(3):
+        px += norm_pdf(X, np.ravel(mu[j, :]), sigma[j, :]) * mpi[j]
+    print('px: ', np.shape(px))
+    print('PX Min value:{}, Max value:{}'.format(np.min(px), np.max(px)))
+    from sklearn import metrics  # use this just to check with my ownn
+
+    fpr, tpr, thresholds = metrics.roc_curve(Y, px)
+    print('px sklearn roc ', metrics.auc(fpr, tpr))
+    c, tpr, fpr = auc(y_true=Y, y_pred=px)
+    print('px own roc ', metrics.auc(fpr, tpr))
+
+    '''from sklearn.mixture import GaussianMixture as GMM
+    gmm = GMM(3, covariance_type='diag', random_state=0)
+    gmm.fit(X)
+    #print(gmm.converged_)
+    print('mean', np.shape(gmm.means_))
+    print('covariances_ ',np.shape(gmm.covariances_))'''
+    #plotDataAndMeans(gmm.means_.T, np.sqrt(gmm.covariances_).T, X)
+    #plotDataAndMeans(gmm.means_.T, np.sqrt(gmm.covariances_).T)
 
     # 3) gammaidx
-    from sklearn.metrics import roc_auc_score  # just for tests
-    # I used sklearn just to compare with my own implementation, delete it later
-    AUC_history = []  # AUC own
-    AUC_history2 = []  # AUC with sklearn
-    for i in range(2, 10):  # neighbors for gamma
+
+    threshold = 0.15
+    for i in [3,6,9]:  # neighbors for gamma
         print(i)
         gamma = gammaidx(X, k=i)
-        c, _, _ = auc(y_true=Y, y_pred=gamma)
-        AUC_history.append(c)
-        AUC_history2.append(roc_auc_score(Y, gamma))
+        print('Min value:{}, Max value:{}'.format(np.min(gamma), np.max(gamma)))
 
-    fig, axs = plt.subplots()
-    plt.plot(range(2, 10), AUC_history, label='AUC')
-    axs.set_title('gammaidx & AUC ')
-    axs.set_xlabel(r'$k$')
-    axs.set_ylabel(r'$AUC$')
-    plt.legend()
-
-    fig, axs = plt.subplots()
-    plt.plot(range(2, 10), AUC_history2, label='AUC 2')
-    axs.set_title('gammaidx & AUC using sklearn')
-    axs.set_xlabel(r'$k$')
-    axs.set_ylabel(r'$AUC $')
-    plt.legend()
+        y_pred = [1.0 if pred >threshold else -1.0 for pred in gamma] #gama
+        c, _, _ = auc(y_true=Y, y_pred=y_pred)
+        print('C:{},  k:{}'.format(c,i))
+        fpr, tpr, thresholds = metrics.roc_curve(Y, y_pred)
+        print('sklearn ',metrics.auc(fpr, tpr))
 
     # 4)
-    '''fig, axs = plt.subplots()
-    gamma = gammaidx(X, k=2)
+    fig, axs = plt.subplots()
+    gamma = gammaidx(X, k=3)
     c, tpr, fpr = auc(y_true=Y, y_pred=gamma)
-    plt.plot(fpr, tpr, label="ROC, AUC score:" + str(c))
+    plt.plot(fpr, tpr, label="Gamma, ROC, AUC score:" + str(c))
+    c, tpr, fpr = auc(y_true=Y, y_pred=px)
+    plt.plot(fpr, tpr, label="Custom outlier Px, ROC, AUC score:" + str(c))
     plt.xlabel('False Positive Rate')
     plt.ylabel('True Positive Rate')
-    plt.legend()'''
+    plt.legend()
+
 
     # ------------------------------------------
 
@@ -738,6 +775,6 @@ if __name__ == '__main__':
     print('Main')
     #Assignment7()
     #Assignment8()
-    Assignment9()
-    # Assignment10()
+    #Assignment9()
+    Assignment10()
 
