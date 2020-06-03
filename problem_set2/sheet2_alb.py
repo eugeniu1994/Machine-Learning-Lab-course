@@ -321,5 +321,22 @@ def Assignment8():
 
         else:
             print('ERROR')
-
+            
+def gammaidx(X, k):
+    '''  Compute the gamma values using the k nearest neighborus for the each data point of X
+    Definition:  y = gammaidx(X, k)
+    Input:       X        - DxN array of N data points with D features
+                 k        - int, number of neighbours used
+    Output:      y        - Nx1 array, contains the gamma value for each data point
+    '''
+    N = X.shape[0]
+    y = np.zeros(N)
+    # Find k nearest neighbour for every data sample and compute its correspondent gamma value
+    for i in range(N):
+        data = np.tile(X[i, :], (N, 1))
+        distance = np.linalg.norm(x=(data - X), axis=1)
+        idx = np.argpartition(distance, k)
+        # Sort 4 largest distances and add them up
+        y[i] = (1/k)*np.sum(distance[idx[0:k+1]])
+    return y
 Assignment8()
