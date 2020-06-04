@@ -6,50 +6,8 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D  # for when you create your own dendrogram
 import scipy.io as spio  # used to lod .mat dataset
 import random
-import matplotlib.cm as cmx
-
-# np.random.seed(2020)
 
 # Assignment 1
-def kmeans_(X, k, max_iter=100, plotData=False):
-    """ Performs k-means clustering
-    Input:
-    X: (n x d) data matrix with each datapoint in one column
-    k: number of clusters
-    max_iter: maximum number of iterations
-    Output:
-    mu: (k x d) matrix with each cluster center in one column
-    r: assignment vector
-    """
-    n, d = np.shape(X)
-    mu = np.zeros((k, d))
-    mu[:k, :] = X[:k, :]  # initial centroids from data
-
-    r = np.zeros(n)
-    r_prim = np.zeros(n)
-    for j in range(max_iter):
-        # Compute distance to every centroid
-        distances = cdist(X, mu, 'euclidean')
-        # Assign data to closest centroid
-        r_prim = r.copy()
-        r = np.argmin(distances, axis=1)
-        diff = (r != r_prim).sum()  # cluster memberships which changed
-        # Compute new cluster center
-        for i in range(k):  # Handle empty cluster by reinitializing them at a random data point if cluster is empty
-            mu[i] = np.mean(X[r == i], axis=0) if i in r else X[np.random.randrange(n), :]
-
-        loss = distances.sum()  # for sum of euclidean distances to cluster centers
-        # print('Iterations: {}, Memberships changed:{}, Loss:{}'.format(j, diff, loss))
-        if diff == 0:  # cluster memberships which changed
-            break
-
-    if plotData:
-        plt.scatter(X[:, 0], X[:, 1], s=100, c=r)
-        plt.scatter(mu[:, 0], mu[:, 1], marker='*', c='g', s=150)
-        plt.show()
-
-    return mu, r, loss
-
 def kmeans(X, k, max_iter=100, plotData=False):
     """ Performs k-means clustering
     Input:
@@ -79,7 +37,7 @@ def kmeans(X, k, max_iter=100, plotData=False):
         for i in range(k):  # Handle empty cluster by reinitializing them at a random data point if cluster is empty
             mu[i] = np.mean(X[r == i], axis=0) if i in r else X[np.random.randrange(n), :]
 
-        # print('Iterations: {},  Loss:{}'.format(j, loss))
+        print('Iterations: {},  Loss:{}'.format(j, loss))
 
     if plotData:
         plt.scatter(X[:, 0], X[:, 1], s=100, c=r)
@@ -277,82 +235,6 @@ def norm_pdf(X, mu, C):
     return pdf
 
 # Assignment 5
-def em_gmm_(X, k, max_iter=100, init_kmeans=False, eps=1e-3, Iterations=False):
-    """ Implements EM for Gaussian Mixture Models
-        Input:
-        X: (n x d) data matrix
-        k: number of clusters
-        max_iter: maximum number of iterations
-        init_kmeans: whether kmeans should be used for initialisation
-        eps: when log likelihood difference is smaller than eps, terminate loop
-        Output:
-        mpi: 1 x k matrix of priors
-        mu: (k x d) matrix with each cluster center in one column
-        sigma: list of d x d covariance matrices
-    """
-    n, d = np.shape(X)
-    if init_kmeans:
-        print('Init by k-means ')
-        mu, _, _ = kmeans(X, k=k)
-        mu = np.asmatrix(mu)
-    else:
-        print('Init by random ')
-        rand_row = np.random.randint(low=0, high=n, size=k)
-        mu = np.asmatrix([X[row_idx, :] for row_idx in rand_row])
-
-    sigma = np.array([np.eye(d) for _ in range(k)])
-    mpi = np.ones(k) / k
-    g = np.full((n, k), fill_value=1 / k)  # gamma
-
-    def Step_E():
-        for j in range(k):
-            pdf = norm_pdf(X, np.ravel(mu[j, :]), sigma[j, :])
-            g[:, j] = pdf
-        up = g * mpi
-        down = up.sum(axis=1)[:, np.newaxis]
-        g[:, :] = up / down
-
-    def Step_M():
-        for j in range(k):
-            nk = g[:, j].sum()
-            mpi[j] = nk / n
-
-            sigma_j = np.zeros((d, d))
-            for i in range(n):
-                sigma_j += g[i, j] * ((X[i, :] - mu[j, :]).T * (X[i, :] - mu[j, :]))
-
-            mu[j] = (X * g[:, j][:, np.newaxis]).sum(axis=0) / nk
-            sigma[j] = sigma_j / nk
-
-    def LogLike():
-        logLike = 0
-        for i in range(n):
-            tmp = 0
-            for j in range(k):
-                tmp += norm_pdf(X[i, :], np.ravel(mu[j, :]), sigma[j, :]) * mpi[j]
-            logLike += np.log(tmp)
-        return logLike
-
-    iter = 0
-
-    logLike = 1
-    prev_logLike = 0
-    while (logLike - prev_logLike > eps) and (iter < max_iter):
-        print('Iteration ', iter)
-        prev_logLike = LogLike()
-
-        Step_E()
-        Step_M()
-        iter += 1
-
-        logLike = LogLike()
-        print('Iter:{},  log-likelihood:{}, error:{}'.format(iter, logLike, abs(logLike - prev_logLike)))
-    print('Finished at {} iter, Log-likelihood:{}'.format(iter, logLike))
-
-    if Iterations:
-        return mpi, mu, sigma, logLike, iter
-    return mpi, mu, sigma, logLike
-
 def em_gmm(X, k, max_iter=100, init_kmeans=False, eps=1e-3, Iterations = False):
     """ Implements EM for Gaussian Mixture Models
         Input:
@@ -685,89 +567,77 @@ def Assignment10():
 
         return c, tpr, fpr
 
-    def plotDataAndMeans(mu, sigma, data=None):
-        def _sphere(mu,  radius, ax=None):
-            phi, theta = np.mgrid[0.0:np.pi:complex(0, 15), 0.0:2.0 * np.pi:complex(0, 15)]
-            print('radius ', radius)
-            x = 2 * radius[0] * np.sin(phi) * np.cos(theta) + mu[0]
-            y = 2 * radius[1] * np.sin(phi) * np.sin(theta) + mu[1]
-            z = 2 * radius[2] * np.cos(phi) + mu[2]
-            ax.plot_surface(x, y, z, alpha=0.3)
-            return ax
-
-        fig = plt.figure(figsize=(8, 8))
-        axes = fig.add_subplot(111, projection='3d')
-        if data is not None:
-            axes.scatter(data[:, 0], data[:, 1], data[:, 2], s=20, edgecolor='k')
-        axes.scatter(mu[0, :], mu[1, :], mu[2, :], c='r', marker='o', s=200, edgecolor='k', alpha=0.8)
-        for i in range(3):
-            if len(np.shape(sigma))==2:
-                _sphere(mu=mu[:, i], radius=sigma[:, i], ax=axes)
-            else:
-                _sphere(mu=mu[:, i], radius=sigma[i, :, i], ax=axes)
-        plt.title('GMM means')
-
     # 1. Load the data set.
     dataset = np.load('data/lab_data.npz')
     print(dataset.files)
-    X = dataset['X']  # [:20,:]
-    Y = dataset['Y']  # [:20,]
+    X = dataset['X']
+    Y = dataset['Y']
     print('X:{},  Y:{}'.format(np.shape(X), np.shape(Y)))
     fig = plt.figure(figsize=(8, 8))
     ax = fig.add_subplot(1, 1, 1, projection='3d', adjustable='box')
     ax.scatter(X[:, 0], X[:, 1], X[:, 2], c=Y, s=20, edgecolor='k')
 
     # 2) em_gmm
-    mpi, mu, sigma, logLik = em_gmm(X, k=3, init_kmeans=True)
-    # custom tailored outlier detection
+    mu_best = None
+    sigma_best = None
+    logLik_best=-np.inf
+    for k in range(3):
+        mpi, mu, sigma, logLik = em_gmm(X, k=3, init_kmeans=True)
+        if logLik>logLik_best:
+            logLik_best = logLik
+            mu_best = mu
+            sigma_best = sigma
+
+    fig = plt.figure(figsize=(8, 8))
+    axes = fig.add_subplot(111, projection='3d')
+    axes.scatter(X[:, 0], X[:, 1], X[:, 2], c=Y, s=20, edgecolor='k',alpha=0.1)
+    axes.set_xlabel('X')
+    axes.set_ylabel('Y')
+    axes.set_zlabel('Z')
+
+    def plotGMM_Means_And_Cov(center, Cov, ax, color):
+        _, sig, rotation = np.linalg.svd(Cov)
+        sca = 1.0 / np.sqrt(sig)
+        phi = np.linspace(0.0, 2.0 * np.pi, 100)
+        theta = np.linspace(0.0, np.pi, 100)
+        x = sca[0] * np.outer(np.cos(phi), np.sin(theta))
+        y = sca[1] * np.outer(np.sin(phi), np.sin(theta))
+        z = sca[2] * np.outer(np.ones_like(phi), np.cos(theta))
+        for i in range(len(x)):
+            for j in range(len(x)):
+                [x[i, j], y[i, j], z[i, j]] = np.dot([x[i, j], y[i, j], z[i, j]], rotation) + center
+        ax.plot_wireframe(x, y, z, rstride=3, cstride=3, color=color, alpha=0.3)
+
+    colors = ['b','y','g']
+    for j in range(0,3):
+       m = mu_best[j].T
+       axes.scatter(m[0], m[1], m[2], c=colors[j], marker='o', s=200, edgecolor='k', alpha=1.0)
+       plotGMM_Means_And_Cov(np.squeeze([i for i in m]), sigma_best[j], axes, colors[j])
+
+    # 3) gammaidx
+    y_prim = [-i for i in Y]
+    for i in [3,6,9]:  # neighbors for gamma
+        print(i)
+        gamma = gammaidx(X, k=i)
+        c, _, _ = auc(y_true=y_prim, y_pred=gamma)
+        print('C:{},  k:{}'.format(c,i))
+    
+    # custom tailored outlier detection 
     px=0
     for j in range(3):
         px += norm_pdf(X, np.ravel(mu[j, :]), sigma[j, :]) * mpi[j]
     print('px: ', np.shape(px))
-    print('PX Min value:{}, Max value:{}'.format(np.min(px), np.max(px)))
-    from sklearn import metrics  # use this just to check with my ownn
-
-    fpr, tpr, thresholds = metrics.roc_curve(Y, px)
-    print('px sklearn roc ', metrics.auc(fpr, tpr))
-    c, tpr, fpr = auc(y_true=Y, y_pred=px)
-    print('px own roc ', metrics.auc(fpr, tpr))
-
-    '''from sklearn.mixture import GaussianMixture as GMM
-    gmm = GMM(3, covariance_type='diag', random_state=0)
-    gmm.fit(X)
-    #print(gmm.converged_)
-    print('mean', np.shape(gmm.means_))
-    print('covariances_ ',np.shape(gmm.covariances_))'''
-    #plotDataAndMeans(gmm.means_.T, np.sqrt(gmm.covariances_).T, X)
-    #plotDataAndMeans(gmm.means_.T, np.sqrt(gmm.covariances_).T)
-
-    # 3) gammaidx
-
-    threshold = 0.15
-    for i in [3,6,9]:  # neighbors for gamma
-        print(i)
-        gamma = gammaidx(X, k=i)
-        print('Min value:{}, Max value:{}'.format(np.min(gamma), np.max(gamma)))
-
-        y_pred = [1.0 if pred >threshold else -1.0 for pred in gamma] #gama
-        c, _, _ = auc(y_true=Y, y_pred=y_pred)
-        print('C:{},  k:{}'.format(c,i))
-        fpr, tpr, thresholds = metrics.roc_curve(Y, y_pred)
-        print('sklearn ',metrics.auc(fpr, tpr))
 
     # 4)
     fig, axs = plt.subplots()
-    gamma = gammaidx(X, k=3)
-    c, tpr, fpr = auc(y_true=Y, y_pred=gamma)
+    gamma = gammaidx(X, k=9)
+    c, tpr, fpr = auc(y_true=y_prim, y_pred=gamma)
     plt.plot(fpr, tpr, label="Gamma, ROC, AUC score:" + str(c))
     c, tpr, fpr = auc(y_true=Y, y_pred=px)
     plt.plot(fpr, tpr, label="Custom outlier Px, ROC, AUC score:" + str(c))
     plt.xlabel('False Positive Rate')
     plt.ylabel('True Positive Rate')
     plt.legend()
-
-
-    # ------------------------------------------
 
     plt.show()
 
