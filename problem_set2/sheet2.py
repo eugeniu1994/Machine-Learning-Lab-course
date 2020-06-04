@@ -581,12 +581,14 @@ def Assignment10():
     mu_best = None
     sigma_best = None
     logLik_best=-np.inf
+    mpi_best = None
     for k in range(3):
         mpi, mu, sigma, logLik = em_gmm(X, k=3, init_kmeans=True)
         if logLik>logLik_best:
             logLik_best = logLik
             mu_best = mu
             sigma_best = sigma
+            mpi_best = mpi
 
     fig = plt.figure(figsize=(8, 8))
     axes = fig.add_subplot(111, projection='3d')
@@ -617,15 +619,15 @@ def Assignment10():
     # 3) gammaidx
     y_prim = [-i for i in Y]
     for i in [3,6,9]:  # neighbors for gamma
-        print(i)
         gamma = gammaidx(X, k=i)
         c, _, _ = auc(y_true=y_prim, y_pred=gamma)
         print('C:{},  k:{}'.format(c,i))
     
-    # custom tailored outlier detection 
+    # custom tailored outlier detection
+    print('Best logLike: ',logLik_best)
     px=0
     for j in range(3):
-        px += norm_pdf(X, np.ravel(mu[j, :]), sigma[j, :]) * mpi[j]
+        px += norm_pdf(X, np.ravel(mu_best[j, :]), sigma_best[j, :]) * mpi_best[j]
     print('px: ', np.shape(px))
 
     # 4)
