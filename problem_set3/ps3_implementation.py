@@ -145,19 +145,19 @@ class krr():
 
         if self.regularization == 0:
             w, U = la.eigh(K)
-            #U = np.real(U)
             U_T = U.T
             L = np.diag(np.real(w))          # Matrix with eigenvalue on its diagonal
-            mean_eig_value = np.mean(np.real(w))
+            #mean_eig_value = np.mean(np.real(w))
             candidates = np.logspace(np.log10(np.max([np.min(w), 1e-5])), np.log10(np.max(w)))
-
+            #candidates = np.linspace(0, mean_eig_value, 1000)
+            print(candidates)
             error_cv = np.zeros(len(candidates))
             for index, c in enumerate(candidates):
                 E = np.diag(1/(w + c * np.ones(n)))
                 S = U @ L @ E @ U_T
                 Sy = S @ y
                 S_diag = np.diag(S)
-                error_cv[index] = np.sum( (1/n) * ((y - Sy)/(1 - S_diag)))
+                error_cv[index] = (1/n) * np.sum(((y - Sy)/(1 - S_diag))**2)
 
             # Choose C with minim error
             #print()
@@ -190,7 +190,6 @@ class krr():
         # Predictions
         y_pred = (self.alpha.T @ K).T
         return y_pred
-
 def noisysincfunction(N, noise):
     ''' noisysincfunction - generate data from the "noisy sinc function"
         % usage
@@ -217,11 +216,13 @@ def noisysincfunction(N, noise):
     Y = np.sinc(X) + noise * np.random.randn(1, N)
     return X.reshape(-1, 1), Y.flatten()
 
+'''
 Xtr, Ytr = noisysincfunction(100, 0.1)
-model = krr(kernel='gaussian', kernelparameter=0.5, regularization=0)
+model = krr(kernel='polynomial', kernelparameter=5, regularization=0)
 model.fit(X=Xtr, y=Ytr)
 y_pred = model.predict(X=Xtr)
 
 plt.plot(Xtr, Ytr)
 plt.plot(Xtr, y_pred)
 plt.show()
+'''
