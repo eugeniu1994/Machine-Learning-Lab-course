@@ -8,6 +8,8 @@ from mpl_toolkits.mplot3d import Axes3D
 from random import randrange
 import random
 import pickle
+from scipy.spatial.distance import cdist
+import pandas as pd
 
 def zero_one_loss(y_true, y_pred):  # return number of misclassified labels
     n= len(y_true)
@@ -200,6 +202,128 @@ def cv(X, y, method, params, loss_function=zero_one_loss, nfolds=10, nrepetition
     method.cvloss = best_error
     print("Best training loss: {}, kernel:{},kernelparam:{}, regularizer:{}".format(best_error,best_kernel,best_kernelparam,best_reg))
     return method
+
+def Assignment3():
+    plot_a = False  # plot ass (a) distances against energy differences
+    train_cv = True
+    optimal_train = False
+    # Load dataset
+    mat = scipy.io.loadmat('../data/qm7.mat')
+    X_not = mat['X']
+    y = mat['T'].T
+
+    X = np.zeros((7165, 23))
+    n, d = X.shape
+    print('X shape: {} , y_shape: {}'.format(X.shape, y.shape))
+
+    # Compute eigenvalues of each Coloumb matrix and set them as features
+    for j in range(X_not.shape[0]):
+        eigvalues, eivectors = np.linalg.eig(X_not[j, :, :])
+        X[j, :] = eigvalues
+
+    # -----------------------------------------------------------------------------------------------------------------
+    # (a) Plot the distances ∥xi−xj∥ against the absolute difference of energies|yi−yj| for all pairs of data points.
+
+    # -> Distances ∥xi−xj∥
+    x_all_dist = cdist(X, X, 'euclidean')
+    y_all_dist = cdist(y, y, 'euclidean')  # 1DIM euclidean equivalent to the absolute difference
+
+    # Extract upper matrix without the main diagonal where dist=0
+    x_dist = x_all_dist[np.triu_indices_from(x_all_dist, k=1)]
+    y_dist = y_all_dist[np.triu_indices_from(y_all_dist, k=1)]
+
+    if plot_a:
+        # Pandas data frame, use e.g 4.000.000  datapoints intead of 25.000.000
+        df = pd.DataFrame({"x_diff": x_dist, "y_diff": y_dist})
+
+        dfSample = df.sample(10000000)  # This is the importante line
+        xdataSample, ydataSample = dfSample["x_diff"], dfSample["y_diff"]
+
+        # Plot distances
+        plt.figure(num=' Distance against energy difference')
+        plt.scatter(xdataSample, ydataSample, s=1)
+
+
+    # -----------------------------------------------------------------------------------------------------------------
+    # (b) Shuffle the data randomly and fix a train/test split of size 5000/2165.
+    indexes = np.arange(0, n)
+    indexes_shuffled = indexes.copy()
+    np.random.shuffle(indexes_shuffled)
+
+    X_train = X[indexes_shuffled[:5000], :]
+    X_test = X[indexes_shuffled[5000:], :]
+
+    y_train = y[indexes_shuffled[:5000], :]
+    y_test = y[indexes_shuffled[5000:], :]
+
+    print('X_train shape: {} , y train shape: {}'.format(X_train.shape, y_train.shape))
+    print('X_test shape: {} , y test shape: {}'.format(X_test.shape, y_test.shape))
+
+    # -----------------------------------------------------------------------------------------------------------------
+    # (c) Use five fold cross-validation to estimate on 2500 random training samples:
+    indexes_train = np.arange(0, 5000)
+    np.random.shuffle(indexes_train)
+
+    X_cv = X_train[indexes_train[:2500], :]
+    y_cv = y_train[indexes_train[:2500], :]
+
+    # Width parameter σ of the Gaussian kernel. Candidates are quantiles of pairwise Euclidean distances.
+    gaussian_width = np.quantile(x_dist, np.linspace(0.01, 1, 20))  # 1%, 2%,...99% quantiles of pairwise eucl diatances
+    print(gaussian_width)
+    print(np.max(x_dist))
+    # Regularization parameter C. Use logarithmically scaled values between 10−7 and 100 as candidates.
+    regularization_c = np.logspace(-7, 0, 10)
+
+    # Dictionary with parameter for the cv function
+    params = {'kernel': ['gaussian'], 'kernelparameter': gaussian_width,
+              'regularization': regularization_c}
+
+    if train_cv:
+        cvkrr = imp.cv(X_cv, y_cv, imp.krr, params, loss_function=imp.mean_absolute_error,
+                   nrepetitions=10, nfolds=5)
+
+    else:
+        pass
+
+    # -----------------------------------------------------------------------------------------------------------------
+    # (d) Keep C and σ fixed and plot the MAE on the test set as a function of the number n of training samples with
+    # n from 100 to 5000.
+
+    if optimal_train:
+        C = 0
+        width = 25
+        n_model_train = np.logspace(np.log10(100), np.log10(3000), 10).astype('int')
+        errors = np.zeros(10)
+
+        for index, n_cur in enumerate(n_model_train):
+            # Train
+            print(n_cur)
+            model = imp.krr(kernel='gaussian', kernelparameter=width, regularization=C)
+            model.fit(X=X_train[:n_cur, :], y= y_train[:n_cur, :])
+            # Test model on the test set
+            y_pred = model.predict(X=X_test)
+            errors[index] = imp.mean_absolute_error(y_test, y_pred)
+
+        # Plot
+
+
+        plt.figure(num='error')
+        plt.scatter(n_model_train, errors)
+        plt.figure(num='difference')
+        print('max y: {} , min y: {}'.format(np.max(y_test), np.min(y_test)))
+        plt.scatter(np.arange(0, 2165), np.squeeze(y_pred.squeeze()/y_test.squeeze()))
+    else:
+        pass
+
+    # -----------------------------------------------------------------------------------------------------------------
+    # (e) show scatter plots of points (yi,y􏰀i) for 1000 data points
+
+    # to be done
+
+    #print()
+    plt.show()
+
+
 
 def Assignment4():
     def readDataSet(filename):
