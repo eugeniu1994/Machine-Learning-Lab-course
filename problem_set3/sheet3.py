@@ -9,14 +9,10 @@ from random import randrange
 import random
 import pickle
 from scipy.spatial.distance import cdist
-<<<<<<< HEAD
 from scipy.stats import norm
 from scipy.spatial.distance import cdist
 import pandas as pd
 import scipy
-=======
-import pandas as pd
->>>>>>> cb8a8af9b42a1cb08668215adf0559a508cf9de5
 
 def zero_one_loss(y_true, y_pred):  # return number of misclassified labels
     n= len(y_true)
@@ -219,7 +215,6 @@ def cv(X, y, method, params, loss_function=zero_one_loss, nfolds=10, nrepetition
     method.cvloss = best_error
     return method
 
-<<<<<<< HEAD
 def _cv(X, y, method, params, loss_function=zero_one_loss, nfolds=10, nrepetitions=5):
     ''' Perform Cross Validation
     '''
@@ -373,8 +368,6 @@ class krr():
         y_pred = (self.alpha.T @ K).T
         return y_pred
 
-=======
->>>>>>> cb8a8af9b42a1cb08668215adf0559a508cf9de5
 def Assignment3():
     plot_a = False  # plot ass (a) distances against energy differences
     train_cv = True
@@ -451,11 +444,7 @@ def Assignment3():
               'regularization': regularization_c}
 
     if train_cv:
-<<<<<<< HEAD
         cvkrr = cv(X_cv, y_cv, krr, params, loss_function=mean_absolute_error,
-=======
-        cvkrr = imp.cv(X_cv, y_cv, imp.krr, params, loss_function=imp.mean_absolute_error,
->>>>>>> cb8a8af9b42a1cb08668215adf0559a508cf9de5
                    nrepetitions=10, nfolds=5)
 
     else:
@@ -474,19 +463,11 @@ def Assignment3():
         for index, n_cur in enumerate(n_model_train):
             # Train
             print(n_cur)
-<<<<<<< HEAD
             model = krr(kernel='gaussian', kernelparameter=width, regularization=C)
             model.fit(X=X_train[:n_cur, :], y= y_train[:n_cur, :])
             # Test model on the test set
             y_pred = model.predict(X=X_test)
             errors[index] = mean_absolute_error(y_test, y_pred)
-=======
-            model = imp.krr(kernel='gaussian', kernelparameter=width, regularization=C)
-            model.fit(X=X_train[:n_cur, :], y= y_train[:n_cur, :])
-            # Test model on the test set
-            y_pred = model.predict(X=X_test)
-            errors[index] = imp.mean_absolute_error(y_test, y_pred)
->>>>>>> cb8a8af9b42a1cb08668215adf0559a508cf9de5
 
         # Plot
 
@@ -507,7 +488,6 @@ def Assignment3():
     #print()
     plt.show()
 
-<<<<<<< HEAD
 def roc_fun(y_true, y_hat, points = 500):
     Negative = np.array(y_true.flatten() == -1).sum() #negative class
     Positive = len(y_true) - Negative                 #positive class
@@ -526,9 +506,6 @@ def roc_fun(y_true, y_hat, points = 500):
 
     result = np.array([TPR, FPR])
     return result
-=======
-
->>>>>>> cb8a8af9b42a1cb08668215adf0559a508cf9de5
 
 def Assignment4():
     def readDataSet(filename):
