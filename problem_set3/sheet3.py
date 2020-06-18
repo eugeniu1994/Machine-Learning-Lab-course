@@ -153,7 +153,7 @@ def cv(X, y, method, params, loss_function=zero_one_loss, nfolds=10, nrepetition
     n,d = np.shape(X)
     best_kernel, best_kernelparam, best_reg = False,False,False
     best_error=np.inf
-
+    best_auc = -np.inf
     theta = [(g, f, s) for g in params['kernel'] for f in params['kernelparameter'] for s in params['regularization']]
     runs = len(theta)*nrepetitions
     progress = 0
@@ -167,6 +167,7 @@ def cv(X, y, method, params, loss_function=zero_one_loss, nfolds=10, nrepetition
             Y_train = cross_validation_split_dataset(y, folds=nfolds)
             #print('X_train {}, Y_train:{} '.format(np.shape(X_train), np.shape(Y_train)))
             error = 0
+            auc=0.0
             indices = np.arange(X_train.shape[0])
             for j in range(nfolds):
                 X_Pj = np.ravel(X_train.copy()[indices != j, :]) if n==1 else (X_train.copy()[indices != j, :]).reshape(-1,d)
@@ -185,8 +186,10 @@ def cv(X, y, method, params, loss_function=zero_one_loss, nfolds=10, nrepetition
                 #scores.append(loss)
                 error += loss
 
+
             #average_loss = np.mean(scores)
             average_loss = error / nfolds
+            average_auc = np.average(auc)
             #print('Average loss {}'.format(average_loss))
             if len(np.shape(average_loss)) == 0:
                 if average_loss < best_error:
@@ -195,8 +198,9 @@ def cv(X, y, method, params, loss_function=zero_one_loss, nfolds=10, nrepetition
                     best_kernelparam = t[1]
                     best_reg = t[2]
             else:
-                if all(average_loss.flat < best_error):
-                    best_error = average_loss.flat
+                if average_auc > best_auc: # all(average_loss.flat < best_error):
+                    best_error = average_loss
+                    best_auc = average_auc
                     print('best_error ', np.shape(best_error))
                     best_kernel = t[0]
                     best_kernelparam = t[1]
@@ -495,6 +499,7 @@ def roc_fun(y_true, y_hat, points = 500):
     #print('Shape of y_true', np.shape(y_true))
     #print('shape of B ', np.shape(B))
     #prediction = (y_hat.T - B) < 0
+    B = np.linspace(-1, 1, points)[np.newaxis, :]
     PRED = (y_hat - B) < 0
     #print('Prediction:{}'.format(np.shape(prediction)))
     #print('Negative:{}, Positive:{}'.format(Negative,Positive))
@@ -506,6 +511,29 @@ def roc_fun(y_true, y_hat, points = 500):
 
     result = np.array([TPR, FPR])
     return result
+
+def roc_fun_Old(y_true, y_pred):
+    fpr, tpr = [], []
+    th = np.arange(0.0, 1.1, .0001)  # thresholds
+    P, N = 0, 0  # positive, negative
+    for cls in y_true:
+        if cls > 0:
+            P += 1
+    N = len(y_true) - P
+    assert N>0 and P>0, 'N or P is zero, zero division exception (No positive or negative classes, Inbalanced data)'
+
+    for thresh in th:
+        FP, TP = 0, 0
+        for i in range(len(y_pred)):
+            if (y_pred[i] > thresh):
+                if y_true[i] == 1:
+                    TP += 1
+                if y_true[i] == -1:
+                    FP += 1
+        fpr.append(FP / float(N))
+        tpr.append(TP / float(P))
+
+    return np.array([tpr,fpr])
 
 def Assignment4():
     def readDataSet(filename):
@@ -527,14 +555,12 @@ def Assignment4():
         Xtr, Xtest, Ytr, Ytest = getDataset(name)
         print('Dataset {}, Xtr:{}, Ytr:{},    Xtest:{}, Ytest:{}'.format(name, np.shape(Xtr), np.shape(Ytr), np.shape(Xtest), np.shape(Ytest)))
 
-        #LOOCV-------------------------------------------------------------------------
-        params = {'kernel': ['gaussian'], 'kernelparameter': np.logspace(-2, 2, 15),
-                  'regularization': [0]}
-        params = {'kernel': ['gaussian'], 'kernelparameter': [1.0],
+        # b) LOOCV-------------------------------------------------------------------------
+        '''params = {'kernel': ['gaussian'], 'kernelparameter': np.logspace(-2, 2, 10),
                   'regularization': [0]}
         cvkrr = cv(Xtr, Ytr, krr, params, loss_function=squared_error_loss, nrepetitions=3)
         y_pred = cvkrr.predict(Xtest)
-        print('Testing loss {} (Proper CV)'.format(squared_error_loss(Ytest,y_pred)))
+        print('Testing loss {}'.format(squared_error_loss(Ytest,y_pred)))
         if k==0:
             plt.figure()
             plt.subplot(2, 2, 1)
@@ -567,13 +593,46 @@ def Assignment4():
         MyDict['kernelparameter'] = cvkrr.kernelparameter
         MyDict['regularization'] = cvkrr.regularization
         MyDict['y_pred'] = y_pred
-        results[name] = MyDict
+        results[name] = MyDict'''
 
-        #Proper CV---------------------------------------------------------------------
-        #to do...
+        # c) Proper CV---------------------------------------------------------------------
+        params = {'kernel': ['gaussian'], 'kernelparameter': np.logspace(-2, 2, 10),
+                  'regularization': np.logspace(-2, 2, 10)}
+        #params = {'kernel': ['gaussian'], 'kernelparameter': np.logspace(-2, 2, 10),
+        #          'regularization': [0]}
+        cvkrr = cv(Xtr, Ytr, krr, params, loss_function=squared_error_loss, nrepetitions=5)
+        y_pred = cvkrr.predict(Xtest)
+        print('Testing loss {} (Proper CV)'.format(squared_error_loss(Ytest, y_pred)))
+
+        if k==0:
+            plt.figure()
+            plt.subplot(2, 2, 1)
+            plt.scatter(Xtr[:, 0], Xtr[:, 1], c=Ytr)
+            plt.title('Banana training data set')
+
+            plt.subplot(2, 2, 2)
+            plt.scatter(Xtest[:, 0], Xtest[:, 1], c=Ytest)
+            plt.title('Banana testing data set')
+
+            plt.subplot(2, 2, 3)
+            plt.scatter(Xtest[:, 0], Xtest[:, 1], c=y_pred)
+            plt.title('Banana CV own implementation')
+
+            plt.subplot(2, 2, 4)
+            from sklearn.kernel_ridge import KernelRidge
+            clf = KernelRidge(kernel='rbf', alpha=1.0)
+            clf.fit(Xtr, Ytr)
+            preds = clf.predict(Xtest)
+            print('sklearn loss is {}'.format(squared_error_loss(Ytest,preds)))
+            pl.scatter(Xtest[:, 0], Xtest[:, 1], c=preds)
+            pl.title('banana with sklearn ')
+
+            plt.show()
+        k+=1
+
         params = {'kernel': [cvkrr.kernel], 'kernelparameter': [cvkrr.kernelparameter],
                   'regularization': [cvkrr.regularization]}
-        cvkrr = cv(Xtr, Ytr, krr, params, loss_function=roc_fun, nrepetitions=3)
+        cvkrr = cv(Xtr, Ytr, krr, params, loss_function=roc_fun, nrepetitions=2)
         TPR, FPR = cvkrr.cvloss[:int(len(cvkrr.cvloss)/2)],cvkrr.cvloss[int(len(cvkrr.cvloss)/2):]
 
         print('TPR:{},  FPR:{}'.format(np.shape(TPR), np.shape(FPR)))
@@ -581,10 +640,10 @@ def Assignment4():
         AUC = np.abs(np.trapz(TPR, FPR))
         print('AUC ', AUC)
 
-        plt.plot(FPR, TPR)
+        plt.plot(FPR.T, TPR.T)
         plt.ylabel('TPR')
         plt.xlabel('FPR')
-        plt.title(' Dataset:{}, AUC:{} '.format(name, round(AUC,3)))
+        plt.title(' Dataset:{}, AUC:{} '.format(name, AUC))
         plt.show()
 
     with open('results.p', 'wb') as handle:
