@@ -16,7 +16,8 @@ import scipy
 
 def zero_one_loss(y_true, y_pred):  # return number of misclassified labels
     n= len(y_true)
-    return (1.0/n)*( n - np.sum(y_true == y_pred))
+    s = np.sum(y_true == np.sign(y_pred))
+    return (1.0/n)*( n - s)
 
 def mean_absolute_error(y_true, y_pred):
     return (1.0 / len(y_true)) * (np.abs(y_pred - y_true).sum())
@@ -26,33 +27,15 @@ def squared_error_loss(y_true, y_pred):
     loss = np.mean((y_true - y_pred) ** 2)
     return loss
 
-class _krr():
+class krr():
     def __init__(self, kernel='linear', kernelparameter=1, regularization=0):
         self.kernel = kernel
         self.kernelparameter = kernelparameter
         self.regularization = regularization
 
-    def Kernels(self, Xtr, Xts):
-        n = np.shape(Xtr)[0]
-        m = np.shape(Xts)[0]
-        k = np.empty((n, m), dtype=np.float)
-        if self.kernel == "linear":
-            for i in range(n):
-                for j in range(m):
-                    k[i][j] = np.dot(Xtr[i], Xts[j])
-        elif self.kernel == "polynomial":
-            for i in range(n):
-                for j in range(m):
-                    k[i][j] = np.power(np.dot(Xtr[i], Xts[j]) + 1, self.kernelparameter)
-        elif self.kernel == "gaussian":
-            for i in range(n):
-                for j in range(m):
-                    k[i][j] = np.exp((-np.linalg.norm(Xtr[i] - Xts[j]) ** 2) / 2 * self.kernelparameter ** 2)
-        else:
-            print('Not implemented yet=======================================================================')
-        return k
-
     def fit(self, X, y, kernel=False, kernelparameter=False, regularization=False):
+        n, d = X.shape
+
         if kernel is not False:
             self.kernel = kernel
         if kernelparameter is not False:
@@ -60,70 +43,62 @@ class _krr():
         if regularization is not False:
             self.regularization = regularization
 
-        #print('fit X:{}, y:{}'.format(np.shape(X), np.shape(y)))
-        n = np.shape(X)[0]
-        self.data = X
-        k = self.Kernels(X, X)
+        # Compute K matrix
+        if self.kernel == 'linear':
+            K = X @ X.T
+        elif self.kernel == 'polynomial':
+            K = (X @ X.T + 1)**self.kernelparameter
+        elif self.kernel == 'gaussian':
+            K = cdist(X, X, 'euclidean')
+            K = np.exp(-(K ** 2) / (2. * self.kernelparameter ** 2))
+
         if self.regularization == 0:
-            #D, U = np.linalg.eig(k)  # eigh  faster,
-            D, U = np.linalg.eigh(k)
-            # logarithmically spaced candidates around the mean of the eigenvalues
-            regularizer = np.logspace(np.log10(np.max([np.min(D), 1e-5])), np.log10(np.max(D)))
-            Uy = np.dot(U.T, y)  # precompute for speed up
-            error = np.inf
-            # print('regularizer ', np.shape(regularizer))
-            best_reg = 0
-            for reg in regularizer:
-                # print('regularizer ',reg)
-                UD_reg = U * (D / (D + reg))
-                S = np.sum((UD_reg) * U, axis=1)  # hat matrix diag
+            w, U = la.eigh(K)
+            U_T = U.T
+            L = np.diag(np.real(w))          # Matrix with eigenvalue on its diagonal
+            #mean_eig_value = np.mean(np.real(w))
+            candidates = np.logspace(np.log10(np.max([np.min(w), 1e-5])), np.log10(np.max(w)))
+            #candidates = np.linspace(0, mean_eig_value, 1000)
+            #print(candidates)
+            error_cv = np.zeros(len(candidates))
+            for index, c in enumerate(candidates):
+                E = np.diag(1/(w + c * np.ones(n)))
+                S = U @ L @ E @ U_T
+                Sy = S @ y
+                S_diag = np.diag(S)
+                error_cv[index] = (1/n) * np.sum(((y - Sy)/(1 - S_diag))**2)
 
-                if (np.sum(S == 1) > 0):
-                    continue
-                y_hat = np.dot(UD_reg, Uy)
-                eps = (1 / n) * np.power(((y.T - y_hat) / (1 - S)), 2).sum()
-                if (eps < error):
-                    error = eps
-                    best_reg = reg
+            # Choose C with minim error
+            self.regularization = float(candidates[np.argwhere(error_cv == np.min(error_cv))[0]])
 
-            D=np.squeeze(D)
-            Uy = np.squeeze(Uy)
-            Uy = Uy / (D + best_reg)
-            self.alpha = np.dot(U, Uy)
+            self.alpha = la.inv((K + self.regularization*np.eye(n))) @ y
+            #self.alpha = np.linalg.solve((K + self.regularization * np.eye(n)), y.T)
+
+            self.alpha = self.alpha[:, np.newaxis]
         else:
-            J = k + self.regularization * np.eye(n)
-            if np.linalg.matrix_rank(J) == J.shape[0]:  # check singularity
-                self.alpha = np.dot(np.linalg.inv(J),y)
-                #self.alpha = np.linalg.solve(J, y.T)
-            else:
-                print('Matrix is singular')
-                J = J + (np.eye(np.shape(J)[0]) * 0.5)  # regularization
-                self.alpha = np.dot(np.linalg.inv(J), y)
-                #self.alpha = np.linalg.solve(J, y.T)
+            self.alpha = la.inv((K + self.regularization*np.eye(n))) @ y
+            #self.alpha = np.linalg.solve((K + self.regularization * np.eye(n)), y.T)
 
+            self.alpha = self.alpha[:, np.newaxis]
+
+        self.X_train = X
         return self
 
     def predict(self, X):
-        y_hat = np.dot(self.Kernels(X, self.data), self.alpha).T
-        return y_hat
+        # Calculate K matrix
+        # Compute K matrix
+        if self.kernel == 'linear':
+            K = self.X_train @ X.T
+        elif self.kernel == 'polynomial':
+            K = (self.X_train @ X.T  + 1) ** self.kernelparameter
+        elif self.kernel == 'gaussian':
+            K = cdist(self.X_train, X, 'euclidean')
+            K = np.exp(-(K ** 2) / (2. * self.kernelparameter ** 2))
+        # Predictions
+        y_pred = (self.alpha.T @ K).T
+        return y_pred
 
-def cv(X, y, method, params, loss_function=zero_one_loss, nfolds=10, nrepetitions=5):
-    if loss_function is None:
-        loss_function = mean_absolute_error
-    method = method()
-
-    def cross_validation_split_dataset(dataset, folds=5):
-        dts_split = list()
-        dts_copy = list(dataset)
-        size_fold = int(len(dataset) / folds)
-        for i in range(folds):
-            fold = list()
-            while len(fold) < size_fold:
-                idx = randrange(len(dts_copy))
-                fold.append(dts_copy.pop(idx))
-            dts_split.append(fold)
-        return np.array(dts_split)
-
+def cv(X, y, method, params, loss_function=zero_one_loss, nfolds=10, nrepetitions=5, roc_f = False):
     def updateProgress(total, progress, details, remain_time):
         length, msg = 100, ""
         progress = float(progress) / float(total)
@@ -140,7 +115,7 @@ def cv(X, y, method, params, loss_function=zero_one_loss, nfolds=10, nrepetition
     def get_remaining_time(step, total, time):
         last_times.append(time)
         len_last_t = len(last_times)
-        if len_last_t > 5:
+        if len_last_t > 25:
             last_times.pop(0)
         mean_time = sum(last_times) // len_last_t
         remain_s_tot = mean_time * (total - step + 1)
@@ -148,80 +123,6 @@ def cv(X, y, method, params, loss_function=zero_one_loss, nfolds=10, nrepetition
         seconds = remain_s_tot % 60
         return "{}m {}s".format(minutes, seconds)
 
-    # version from handbook
-    print('X:{},  y:{}'.format(np.shape(X), np.shape(y)))
-    n,d = np.shape(X)
-    best_kernel, best_kernelparam, best_reg = False,False,False
-    best_error=np.inf
-    best_auc = -np.inf
-    theta = [(g, f, s) for g in params['kernel'] for f in params['kernelparameter'] for s in params['regularization']]
-    runs = len(theta)*nrepetitions
-    progress = 0
-    for i in range(nrepetitions):
-        #print('Step ', i)
-        for t in theta:
-            current_time = time.time()
-            # print('========{}========='.format(t))
-            scores = []
-            X_train = cross_validation_split_dataset(X, folds=nfolds)
-            Y_train = cross_validation_split_dataset(y, folds=nfolds)
-            #print('X_train {}, Y_train:{} '.format(np.shape(X_train), np.shape(Y_train)))
-            error = 0
-            auc=0.0
-            indices = np.arange(X_train.shape[0])
-            for j in range(nfolds):
-                X_Pj = np.ravel(X_train.copy()[indices != j, :]) if n==1 else (X_train.copy()[indices != j, :]).reshape(-1,d)
-                Y_Pj = np.ravel(Y_train.copy()[indices != j, :])
-
-                X_test = X_train.copy()[j]
-                Y_test = Y_train.copy()[j]
-                #print('X_Pj {},  Y_Pj:{}'.format(np.shape(X_Pj), np.shape(Y_Pj)))
-                #print('X_test {},  Y_test:{}'.format(np.shape(X_test), np.shape(Y_test)))
-
-                method.fit(X=X_Pj, y=Y_Pj, kernel=t[0], kernelparameter=t[1], regularization=t[2])
-                y_hat = method.predict(X_test)
-
-                loss = loss_function(Y_test, y_hat)
-                #print(loss)
-                #scores.append(loss)
-                error += loss
-
-
-            #average_loss = np.mean(scores)
-            average_loss = error / nfolds
-            average_auc = np.average(auc)
-            #print('Average loss {}'.format(average_loss))
-            if len(np.shape(average_loss)) == 0:
-                if average_loss < best_error:
-                    best_error = average_loss
-                    best_kernel = t[0]
-                    best_kernelparam = t[1]
-                    best_reg = t[2]
-            else:
-                if average_auc > best_auc: # all(average_loss.flat < best_error):
-                    best_error = average_loss
-                    best_auc = average_auc
-                    print('best_error ', np.shape(best_error))
-                    best_kernel = t[0]
-                    best_kernelparam = t[1]
-                    best_reg = t[2]
-
-                #method.mean = np.mean(scores, axis=1)
-            last_t = time.time() - current_time
-
-            #details = "Average loss: {}, kernel:{},kernelparam:{},regularizer:{}".format(average_loss,t[0],t[1],t[2])
-            details = "Average loss: {}, kernel:{},kernelparam:{},regularizer:{}".format('~', t[0], t[1], t[2])
-            updateProgress(runs, progress + 1,details,get_remaining_time(progress + 1, runs, last_t))
-            progress += 1
-
-    print("Best training loss: {}, kernel:{},kernelparam:{}, regularizer:{}".format(best_error,best_kernel,best_kernelparam,best_reg))
-    method.fit(X=X, y=y, kernel=best_kernel, kernelparameter=best_kernelparam, regularization=best_reg)
-    method.cvloss = best_error
-    return method
-
-def _cv(X, y, method, params, loss_function=zero_one_loss, nfolds=10, nrepetitions=5):
-    ''' Perform Cross Validation
-    '''
     # Data info
     n, d = X.shape
     indexes = np.arange(0, n)
@@ -233,19 +134,22 @@ def _cv(X, y, method, params, loss_function=zero_one_loss, nfolds=10, nrepetitio
 
     # Init error function containing the average loss for every parameters combination
     error_combinations = np.zeros(n_combinations)
-
     # For loop over all possible params combinations
-
+    runs = n_combinations * nrepetitions
+    progress = 0
+    method.auc = 0.0
     for cur_index, local_parameter in enumerate(combinations_params):
         # Compute mean r-CV-error for fixed parameters
         e_r_error = 0
         # Init method with current parameters combination
         method_fold = method(*local_parameter)  # local_parameter is a list containing the parameters values used.
+        current_time = time.time()
         for i in range(nrepetitions):
             # Randomly split the data set ny shuffling the indexes
             indexes_shuffled = indexes.copy()
             np.random.shuffle(indexes_shuffled)
             e_cv_error = 0
+
             # Go over all folds
             for cur_fold in range(nfolds):
                 # extract Training data
@@ -274,103 +178,38 @@ def _cv(X, y, method, params, loss_function=zero_one_loss, nfolds=10, nrepetitio
                 y_pred = method_fold.predict(X_fold_test)
 
                 # Sum Error
-                e_cv_error += loss_function(y_pred, y_fold_test)
-
+                #e_cv_error += loss_function(y_pred, y_fold_test)
+                loss = loss_function(y_fold_test, y_pred)
+                e_cv_error += loss
             e_r_error += e_cv_error / nfolds
 
+            last_t = time.time() - current_time
+
+            details = "kernel:{},kernelparam:{},regularizer:{}".format(local_parameter[0], local_parameter[1], local_parameter[2])
+            updateProgress(runs, progress + 1, details, get_remaining_time(progress + 1, runs, last_t))
+            progress += 1
+
         final_error = e_r_error / nrepetitions
-        error_combinations[cur_index] = final_error
+        if roc_f:
+            tp, fp = final_error[0,], final_error[1, :]
+            auc = np.abs(np.trapz(tp, fp))
+            error_combinations[cur_index] = auc
+            if method.auc < auc:
+                method.tp = np.squeeze(tp)
+                method.fp = np.squeeze(fp)
+        else:
+            error_combinations[cur_index] = final_error
 
     # Look for minimum error and which params combination it corresponds to
-    best_param_combination = combinations_params[int(np.argwhere(error_combinations == np.min(error_combinations)))]
+    best_param_combination = combinations_params[int(np.argwhere(error_combinations == np.max(error_combinations)))]
+    #best_param_combination = combinations_params[int(np.argwhere(error_combinations == np.min(error_combinations)))]
 
     # Init model with the "best" parameters combination and save its correspondent computed cv-loss value
     best_method = method(*best_param_combination)
     best_method.cvloss = np.min(error_combinations)
     best_method.fit(X, y) # Train best model on all the dataset
-    print('Best loss ', np.min(error_combinations))
+
     return best_method
-
-class krr():
-    ''' your header here!
-    '''
-    def __init__(self, kernel='linear', kernelparameter=1, regularization=0):
-        self.kernel = kernel
-        self.kernelparameter = kernelparameter
-        self.regularization = regularization
-
-    def fit(self, X, y, kernel=False, kernelparameter=False, regularization=False):
-        n, d = X.shape
-
-        if kernel is not False:
-            self.kernel = kernel
-        if kernelparameter is not False:
-            self.kernelparameter = kernelparameter
-        if regularization is not False:
-            self.regularization = regularization
-
-        try:
-            # Compute K matrix
-            if self.kernel == 'linear':
-                K = X @ X.T
-            elif self.kernel == 'polynomial':
-                K = (X @ X.T + 1)**self.kernelparameter
-            elif self.kernel == 'gaussian':
-                K = cdist(X, X, 'euclidean')
-                K = np.exp(-(K ** 2) / (2. * self.kernelparameter ** 2))
-
-        except Exception as errorEx:
-            print('Compute K matrix error ', str(errorEx))
-            raise Exception("Sorry, "+str(errorEx))
-
-
-        if self.regularization == 0:
-            w, U = la.eigh(K)
-            U_T = U.T
-            L = np.diag(np.real(w))          # Matrix with eigenvalue on its diagonal
-            #mean_eig_value = np.mean(np.real(w))
-            candidates = np.logspace(np.log10(np.max([np.min(w), 1e-5])), np.log10(np.max(w)))
-            #candidates = np.linspace(0, mean_eig_value, 1000)
-            #print(candidates)
-            error_cv = np.zeros(len(candidates))
-            for index, c in enumerate(candidates):
-                E = np.diag(1/(w + c * np.ones(n)))
-                S = U @ L @ E @ U_T
-                Sy = S @ y
-                S_diag = np.diag(S)
-                error_cv[index] = (1/n) * np.sum(((y - Sy)/(1 - S_diag))**2)
-
-            # Choose C with minim error
-            #print()
-            self.regularization = float(candidates[np.argwhere(error_cv == np.min(error_cv))])
-            self.alpha = la.inv((K + self.regularization*np.eye(n))) @ y
-            self.alpha = self.alpha[:, np.newaxis]
-
-        else:
-            self.alpha = la.inv((K + self.regularization*np.eye(n))) @ y
-            self.alpha = self.alpha[:, np.newaxis]
-
-        self.X_train = X
-        return self
-
-    def predict(self, X):
-        ''' your header here!
-        '''
-        # Calculate K matrix
-        # Compute K matrix
-        if self.kernel == 'linear':
-            K = self.X_train @ X.T
-
-        elif self.kernel == 'polynomial':
-            K = (self.X_train @ X.T  + 1) ** self.kernelparameter
-
-        elif self.kernel == 'gaussian':
-            K = cdist(self.X_train, X, 'euclidean')
-            K = np.exp(-(K ** 2) / (2. * self.kernelparameter ** 2))
-
-        # Predictions
-        y_pred = (self.alpha.T @ K).T
-        return y_pred
 
 def Assignment3():
     plot_a = False  # plot ass (a) distances against energy differences
@@ -492,48 +331,19 @@ def Assignment3():
     #print()
     plt.show()
 
-def roc_fun(y_true, y_hat, points = 500):
+def roc_fun(y_true, y_hat, points = 1500, threshold = 0.0):
+    y_hat = y_hat[:, np.newaxis]
     Negative = np.array(y_true.flatten() == -1).sum() #negative class
     Positive = len(y_true) - Negative                 #positive class
-    B = np.linspace(-2, 2, points)[np.newaxis, :]     #variation of bias term
-    #print('Shape of y_true', np.shape(y_true))
-    #print('shape of B ', np.shape(B))
-    #prediction = (y_hat.T - B) < 0
-    B = np.linspace(-1, 1, points)[np.newaxis, :]
-    PRED = (y_hat - B) < 0
-    #print('Prediction:{}'.format(np.shape(prediction)))
-    #print('Negative:{}, Positive:{}'.format(Negative,Positive))
-    #TPR = PRED[y_true.flatten() == -1, :].sum(axis=0) / Negative
-    #FPR = PRED[y_true.flatten() == 1, :].sum(axis=0) / Positive
+    assert Positive>0 and Negative>0, 'Negative or Positive is zero, zero division exception (No positive or negative classes, Inbalanced data)'
+
+    B = np.linspace(-3, 3, points)[np.newaxis, :]
+    PRED = (y_hat - B) > threshold
 
     TPR = PRED[y_true.flatten() == 1, :].sum(axis=0) / Positive
     FPR = PRED[y_true.flatten() == -1, :].sum(axis=0) / Negative
 
-    result = np.array([TPR, FPR])
-    return result
-
-def roc_fun_Old(y_true, y_pred):
-    fpr, tpr = [], []
-    th = np.arange(0.0, 1.1, .0001)  # thresholds
-    P, N = 0, 0  # positive, negative
-    for cls in y_true:
-        if cls > 0:
-            P += 1
-    N = len(y_true) - P
-    assert N>0 and P>0, 'N or P is zero, zero division exception (No positive or negative classes, Inbalanced data)'
-
-    for thresh in th:
-        FP, TP = 0, 0
-        for i in range(len(y_pred)):
-            if (y_pred[i] > thresh):
-                if y_true[i] == 1:
-                    TP += 1
-                if y_true[i] == -1:
-                    FP += 1
-        fpr.append(FP / float(N))
-        tpr.append(TP / float(P))
-
-    return np.array([tpr,fpr])
+    return np.array([TPR, FPR])
 
 def Assignment4():
     def readDataSet(filename):
@@ -548,6 +358,19 @@ def Assignment4():
 
         return _Xtrain, _Xtest, _Ytrain, _Ytest
 
+    def plot_roc_curve(fpr, tpr, title, aucScore):
+        plt.plot(fpr, tpr, label='ROC - AUC:'+str(aucScore))
+        plt.plot([0, 1], [0, 1], linestyle='--')
+        plt.xlabel('FPR')
+        plt.ylabel('TPR')
+        plt.title(title)
+        plt.legend()
+        plt.show()
+
+    from sklearn.ensemble import RandomForestClassifier  #used just to test myself
+    from sklearn.metrics import roc_curve
+    from sklearn.metrics import roc_auc_score
+
     dataset_names = ['banana'] # ['banana','diabetis','flare-solar','image','ringnorm']
     k=0
     results = {}
@@ -558,98 +381,91 @@ def Assignment4():
         # b) LOOCV-------------------------------------------------------------------------
         '''params = {'kernel': ['gaussian'], 'kernelparameter': np.logspace(-2, 2, 10),
                   'regularization': [0]}
-        cvkrr = cv(Xtr, Ytr, krr, params, loss_function=squared_error_loss, nrepetitions=3)
+        cvkrr = cv(Xtr, Ytr, krr, params, loss_function=squared_error_loss, nrepetitions=5)
         y_pred = cvkrr.predict(Xtest)
-        print('Testing loss {}'.format(squared_error_loss(Ytest,y_pred)))
         if k==0:
             plt.figure()
-            plt.subplot(2, 2, 1)
-            plt.scatter(Xtr[:, 0], Xtr[:, 1], c=Ytr)
-            plt.title('Banana training data set')
-
-            plt.subplot(2, 2, 2)
+            plt.subplot(2, 1, 1)
             plt.scatter(Xtest[:, 0], Xtest[:, 1], c=Ytest)
             plt.title('Banana testing data set')
 
-            plt.subplot(2, 2, 3)
+            plt.subplot(2, 1, 2)
             plt.scatter(Xtest[:, 0], Xtest[:, 1], c=y_pred)
-            plt.title('Banana CV own implementation')
-
-            plt.subplot(2, 2, 4)
-            from sklearn.kernel_ridge import KernelRidge
-            clf = KernelRidge(kernel='rbf', alpha=1.0)
-            clf.fit(Xtr, Ytr)
-            preds = clf.predict(Xtest)
-            print('sklearn loss is {}'.format(squared_error_loss(Ytest,preds)))
-            pl.scatter(Xtest[:, 0], Xtest[:, 1], c=preds)
-            pl.title('banana with sklearn ')
-
+            plt.title('Banana prediction')
             plt.show()
         k+=1
+        y_pred = y_pred[:, 0, 0]
+        auc = roc_auc_score(Ytest, y_pred)
+        print('AUC for '+str(name)+',  LOOCV: %.2f' % auc)'''
 
-        MyDict = dict()
-        MyDict['cvloss'] = cvkrr.cvloss
-        MyDict['kernel'] = cvkrr.kernel
-        MyDict['kernelparameter'] = cvkrr.kernelparameter
-        MyDict['regularization'] = cvkrr.regularization
-        MyDict['y_pred'] = y_pred
-        results[name] = MyDict'''
+        #MyDict = dict()
+        #MyDict['cvloss'] = cvkrr.cvloss
+        #MyDict['kernel'] = cvkrr.kernel
+        #MyDict['kernelparameter'] = cvkrr.kernelparameter
+        #MyDict['regularization'] = cvkrr.regularization
+        #MyDict['y_pred'] = y_pred
+        #results[name] = MyDict
+
 
         # c) Proper CV---------------------------------------------------------------------
         params = {'kernel': ['gaussian'], 'kernelparameter': np.logspace(-2, 2, 10),
                   'regularization': np.logspace(-2, 2, 10)}
-        #params = {'kernel': ['gaussian'], 'kernelparameter': np.logspace(-2, 2, 10),
-        #          'regularization': [0]}
-        cvkrr = cv(Xtr, Ytr, krr, params, loss_function=squared_error_loss, nrepetitions=5)
+        #params = {'kernel': ['gaussian'], 'kernelparameter': [1.0],
+        #          'regularization': np.logspace(-2, 2, 10)}
+        cvkrr = cv(Xtr, Ytr, krr, params, loss_function=squared_error_loss, nrepetitions=3)
         y_pred = cvkrr.predict(Xtest)
-        print('Testing loss {} (Proper CV)'.format(squared_error_loss(Ytest, y_pred)))
 
-        if k==0:
-            plt.figure()
-            plt.subplot(2, 2, 1)
-            plt.scatter(Xtr[:, 0], Xtr[:, 1], c=Ytr)
-            plt.title('Banana training data set')
+        model = RandomForestClassifier()
+        model.fit(Xtr, Ytr)
 
-            plt.subplot(2, 2, 2)
-            plt.scatter(Xtest[:, 0], Xtest[:, 1], c=Ytest)
-            plt.title('Banana testing data set')
+        probs = model.predict_proba(Xtest)
+        probs = probs[:, 1]
+        auc = roc_auc_score(Ytest, probs)
+        print('AUC: %.2f' % auc)
 
-            plt.subplot(2, 2, 3)
-            plt.scatter(Xtest[:, 0], Xtest[:, 1], c=y_pred)
-            plt.title('Banana CV own implementation')
+        y_pred = y_pred[:, 0, 0]
+        auc = roc_auc_score(Ytest, y_pred)
+        print('AUC own: %.2f' % auc)
 
-            plt.subplot(2, 2, 4)
-            from sklearn.kernel_ridge import KernelRidge
-            clf = KernelRidge(kernel='rbf', alpha=1.0)
-            clf.fit(Xtr, Ytr)
-            preds = clf.predict(Xtest)
-            print('sklearn loss is {}'.format(squared_error_loss(Ytest,preds)))
-            pl.scatter(Xtest[:, 0], Xtest[:, 1], c=preds)
-            pl.title('banana with sklearn ')
+        print('----------------------------------------')
+        r = roc_fun(Ytest, y_pred)
+        tp, fp = r[0,],r[1,:]
+        AUC2 = np.abs(np.trapz(tp, fp))
+        print('AUC last', AUC2)
 
-            plt.show()
-        k+=1
-
-        params = {'kernel': [cvkrr.kernel], 'kernelparameter': [cvkrr.kernelparameter],
+        best_params = {'kernel': [cvkrr.kernel], 'kernelparameter': [cvkrr.kernelparameter],
                   'regularization': [cvkrr.regularization]}
-        cvkrr = cv(Xtr, Ytr, krr, params, loss_function=roc_fun, nrepetitions=2)
-        TPR, FPR = cvkrr.cvloss[:int(len(cvkrr.cvloss)/2)],cvkrr.cvloss[int(len(cvkrr.cvloss)/2):]
+        roc_cvkrr = cv(Xtr, Ytr, krr, best_params, loss_function=roc_fun, nrepetitions=3, roc_f=True)
+        y_pred = roc_cvkrr.predict(Xtest)
+        auc = np.abs(np.trapz(roc_cvkrr.tp, roc_cvkrr.fp))
+        print('The best AUC: %.2f' % auc)
+        plot_roc_curve(roc_cvkrr.fp, roc_cvkrr.tp, 'ROC for {} dataset - CV'.format(name), round(auc, 3))
 
-        print('TPR:{},  FPR:{}'.format(np.shape(TPR), np.shape(FPR)))
+        y_pred = y_pred[:, 0, 0]
+        auc = roc_auc_score(Ytest, y_pred)
+        print('AUC: %.2f' % auc)
+        fpr, tpr, thresholds = roc_curve(Ytest, y_pred)
+        plot_roc_curve(fpr, tpr, 'Last ROC for {} dataset - CV'.format(name), round(auc, 3))
 
-        AUC = np.abs(np.trapz(TPR, FPR))
-        print('AUC ', AUC)
 
-        plt.plot(FPR.T, TPR.T)
-        plt.ylabel('TPR')
-        plt.xlabel('FPR')
-        plt.title(' Dataset:{}, AUC:{} '.format(name, AUC))
-        plt.show()
+        #d) same with 0-1 loss ===========================================================
+        '''params = {'kernel': ['gaussian'], 'kernelparameter': [1.0],
+                  'regularization': np.logspace(-2, 2, 10)}
+        params = {'kernel': ['gaussian'], 'kernelparameter': np.logspace(-2, 2, 10),
+                  'regularization': [0]}
+        cvkrr = cv(Xtr, Ytr, krr, params, loss_function=zero_one_loss, nrepetitions=3)
+        y_pred = cvkrr.predict(Xtest)
+        y_pred = y_pred[:, 0, 0]
+        auc = roc_auc_score(Ytest, y_pred)
+        print('AUC zero_one_loss: %.2f' % auc)
+        fpr, tpr, thresholds = roc_curve(Ytest, y_pred)
+        plot_roc_curve(fpr, tpr, 'ROC for {} dataset - CV, Zero_One_loss'.format(name), round(auc, 3))'''
 
-    with open('results.p', 'wb') as handle:
-        pickle.dump(results, handle, protocol=pickle.HIGHEST_PROTOCOL)
-
+    #with open('results.p', 'wb') as handle:
+    #    pickle.dump(results, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 if __name__ == '__main__':
     print('Main')
     Assignment4()
+
+
