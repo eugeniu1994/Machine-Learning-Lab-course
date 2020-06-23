@@ -217,7 +217,7 @@ def Assignment3():
     over_under_fit = True # plot under-, over- and optimal fited data for train and test set
 
     # Load dataset
-    mat = scipy.io.loadmat('../data/qm7.mat')
+    mat = scipy.io.loadmat('./data/qm7.mat')
     X_not = mat['X']
     y = mat['T'].T
 
