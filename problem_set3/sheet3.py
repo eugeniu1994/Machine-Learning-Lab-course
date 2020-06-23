@@ -1,18 +1,5 @@
-""" ps3_implementation.py
-
-PUT YOUR NAME HERE:
-<FIRST_NAME><LAST_NAME>
 
 
-Write the functions
-- cv
-- zero_one_loss
-- krr
-Write your implementations in the given functions stubs!
-
-
-(c) Daniel Bartz, TU Berlin, 2013
-"""
 import numpy as np
 import scipy.linalg as la
 import itertools as it
