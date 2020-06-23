@@ -211,9 +211,11 @@ class krr():
         return y_pred
 
 def Assignment3():
-    plot_a = False  # plot ass (a) distances against energy differences
-    train_cv = True
-    optimal_train = False
+    plot_a = True    # plot ass (a) distances against energy differences
+    train_cv = False  # perform 5fold CV
+    optimal_train = True  # plot error(N) of ass 3d
+    over_under_fit = True # plot under-, over- and optimal fited data for train and test set
+
     # Load dataset
     mat = scipy.io.loadmat('../data/qm7.mat')
     X_not = mat['X']
@@ -240,16 +242,20 @@ def Assignment3():
     y_dist = y_all_dist[np.triu_indices_from(y_all_dist, k=1)]
 
     if plot_a:
-        # Pandas data frame, use e.g 4.000.000  datapoints intead of 25.000.000
+        # Pandas data frame, use e.g 10.000.000 datapoints intead of 25.000.000
         df = pd.DataFrame({"x_diff": x_dist, "y_diff": y_dist})
 
         dfSample = df.sample(10000000)  # This is the importante line
         xdataSample, ydataSample = dfSample["x_diff"], dfSample["y_diff"]
 
         # Plot distances
-        plt.figure(num=' Distance against energy difference')
-        plt.scatter(xdataSample, ydataSample, s=1)
-
+        fig = plt.figure(num='Distance against energy difference', figsize=(7.2, 4.45))
+        ax = fig.add_subplot(111)
+        ax.scatter(xdataSample, ydataSample, s=1)
+        ax.set_xlabel('d')
+        ax.set_ylabel(r'$ \Delta E [kcal/mol]$')
+        plt.tick_params(axis='both', which='major', labelsize=11)
+        plt.tick_params(axis='both', which='minor', labelsize=10)
 
     # -----------------------------------------------------------------------------------------------------------------
     # (b) Shuffle the data randomly and fix a train/test split of size 5000/2165.
@@ -272,23 +278,26 @@ def Assignment3():
     np.random.shuffle(indexes_train)
 
     X_cv = X_train[indexes_train[:2500], :]
-    y_cv = y_train[indexes_train[:2500], :]
+    y_cv = np.squeeze(y_train[indexes_train[:2500], :])
 
     # Width parameter σ of the Gaussian kernel. Candidates are quantiles of pairwise Euclidean distances.
-    gaussian_width = np.quantile(x_dist, np.linspace(0.01, 1, 20))  # 1%, 2%,...99% quantiles of pairwise eucl diatances
+    gaussian_width = np.quantile(x_dist, [0.1, 0.5, 0.9])  # 1%, 2%,...99% quantiles of pairwise eucl diatances
     print(gaussian_width)
-    print(np.max(x_dist))
     # Regularization parameter C. Use logarithmically scaled values between 10−7 and 100 as candidates.
     regularization_c = np.logspace(-7, 0, 10)
+
 
     # Dictionary with parameter for the cv function
     params = {'kernel': ['gaussian'], 'kernelparameter': gaussian_width,
               'regularization': regularization_c}
 
     if train_cv:
-        cvkrr = cv(X_cv, y_cv, krr, params, loss_function=mean_absolute_error,
-                   nrepetitions=10, nfolds=5)
-
+        cvkrr = imp.cv(X_cv, y_cv, imp.krr, params, loss_function=imp.mean_absolute_error,
+                   nrepetitions=5, nfolds=5)
+        # Error on the test set
+        y_pred = cvkrr.predict(X_test)
+        test_error = imp.mean_absolute_error(y_true=np.squeeze(y_test), y_pred=y_pred)
+        print('Test Error: {}'.format(test_error))
     else:
         pass
 
@@ -297,37 +306,91 @@ def Assignment3():
     # n from 100 to 5000.
 
     if optimal_train:
-        C = 0
-        width = 25
-        n_model_train = np.logspace(np.log10(100), np.log10(3000), 10).astype('int')
+        C = 2.1544346900318867e-05
+        width = 23.78351003
+        n_model_train = np.logspace(np.log10(100), np.log10(5000), 10).astype('int')
         errors = np.zeros(10)
 
         for index, n_cur in enumerate(n_model_train):
             # Train
-            print(n_cur)
-            model = krr(kernel='gaussian', kernelparameter=width, regularization=C)
-            model.fit(X=X_train[:n_cur, :], y= y_train[:n_cur, :])
+            model = imp.krr(kernel='gaussian', kernelparameter=width, regularization=C)
+            model.fit(X=X_train[:n_cur, :], y= np.squeeze(y_train[:n_cur, :]))
             # Test model on the test set
             y_pred = model.predict(X=X_test)
-            errors[index] = mean_absolute_error(y_test, y_pred)
+            errors[index] = imp.mean_absolute_error(np.squeeze(y_test), y_pred)
 
-        # Plot
+        # plot error(N_train)
+        plt.figure(figsize=(5, 5))
+        ax = plt.gca()
+        ax.plot(n_model_train, errors, '-ob')
+        ax.set_xlabel('N')
+        ax.set_ylabel('MAE')
+        plt.tick_params(axis='both', which='major', labelsize=11)
+        plt.tick_params(axis='both', which='minor', labelsize=10)
+
+    # -----------------------------------------------------------------------------------------------------------------
+    # (e) Three models: 1 that underfits, 1 that fits well and 1 that overfits + data showing this
+#2.15443
+    if over_under_fit:
+        C_under =2.1e-02
+        C_over = 1e-09
+        C_optimal = 2.1544346900318867e-05
+
+        C_all = [C_under, C_over, C_optimal]
+        width = 23.78351003
+
+        y_test = np.squeeze(y_test)
+
+        # randomly select 1000 points for training
+        indexes_train = np.arange(0, 5000)
+        np.random.shuffle(indexes_train)
+
+        X_cv = X_train[indexes_train[:1000], :]
+        y_cv = np.squeeze(y_train[indexes_train[:1000], :])
 
 
-        plt.figure(num='error')
-        plt.scatter(n_model_train, errors)
-        plt.figure(num='difference')
-        print('max y: {} , min y: {}'.format(np.max(y_test), np.min(y_test)))
-        plt.scatter(np.arange(0, 2165), np.squeeze(y_pred.squeeze()/y_test.squeeze()))
+        for c_cur in C_all:
+            model = imp.krr(kernel='gaussian', kernelparameter=width, regularization=c_cur)
+            model.fit(X=X_cv, y=y_cv)
+
+            y_pred_train = model.predict(X_cv)
+            y_pred_test = model.predict(X_test)
+
+            # Plot
+
+            fig = plt.figure(num='Model TRAIN for C='+str(c_cur), figsize=(7.2, 4.45))
+            ax = fig.add_subplot(111)
+            ax.scatter(y_cv, y_cv, label='ideal')
+            ax.scatter(y_cv, y_pred_train, label='predicted')
+
+            ax.set_xlabel('y_{test}')
+            ax.set_ylabel('y_{test/predicted}')
+
+            ax.set_xlabel('y_{train}')
+            ax.set_ylabel('y_{train/predicted}')
+
+            plt.tick_params(axis='both', which='major', labelsize=11)
+            plt.tick_params(axis='both', which='minor', labelsize=10)
+
+            fig = plt.figure(num='Model TEST for C='+str(c_cur), figsize=(7.2, 4.45))
+            ax = fig.add_subplot(111)
+            ax.scatter(y_test, y_test, label='ideal')
+            ax.scatter(y_test, y_pred_test, label='predicted')
+
+            ax.set_xlabel('y_{test}')
+            ax.set_ylabel('y_{test/predicted}')
+
+            plt.tick_params(axis='both', which='major', labelsize=11)
+            plt.tick_params(axis='both', which='minor', labelsize=10)
+
+            print('Regularization c: {} , Gaussian width: {}'.format(c_cur, width))
+            print('MAE ERROR TRAIN: {}'.format(imp.mean_absolute_error(y_pred_train, y_cv)))
+            print('MAE ERROR TEST: {}'.format(imp.mean_absolute_error(y_pred_test, y_test)))
+            print('----')
     else:
         pass
 
-    # -----------------------------------------------------------------------------------------------------------------
-    # (e) show scatter plots of points (yi,y􏰀i) for 1000 data points
-
-    # to be done
-
-    #print()
+    plt.legend()
     plt.show()
 
 def roc_fun(y_true, y_hat, points = 1500, threshold = 0.0):
