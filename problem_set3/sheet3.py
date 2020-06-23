@@ -1,18 +1,29 @@
+""" ps3_implementation.py
+
+PUT YOUR NAME HERE:
+<FIRST_NAME><LAST_NAME>
+
+
+Write the functions
+- cv
+- zero_one_loss
+- krr
+Write your implementations in the given functions stubs!
+
+
+(c) Daniel Bartz, TU Berlin, 2013
+"""
 import numpy as np
 import scipy.linalg as la
 import itertools as it
 import time
 import pylab as pl
-import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
-from random import randrange
-import random
-import pickle
 from scipy.spatial.distance import cdist
-from scipy.stats import norm
-from scipy.spatial.distance import cdist
-import pandas as pd
+from matplotlib import pyplot as plt
 import scipy
+import pandas as pd
+import pickle
 
 def zero_one_loss(y_true, y_pred):  # return number of misclassified labels
     n= len(y_true)
@@ -27,78 +38,7 @@ def squared_error_loss(y_true, y_pred):
     loss = np.mean((y_true - y_pred) ** 2)
     return loss
 
-class krr():
-    def __init__(self, kernel='linear', kernelparameter=1, regularization=0):
-        self.kernel = kernel
-        self.kernelparameter = kernelparameter
-        self.regularization = regularization
-
-    def fit(self, X, y, kernel=False, kernelparameter=False, regularization=False):
-        n, d = X.shape
-
-        if kernel is not False:
-            self.kernel = kernel
-        if kernelparameter is not False:
-            self.kernelparameter = kernelparameter
-        if regularization is not False:
-            self.regularization = regularization
-
-        # Compute K matrix
-        if self.kernel == 'linear':
-            K = X @ X.T
-        elif self.kernel == 'polynomial':
-            K = (X @ X.T + 1)**self.kernelparameter
-        elif self.kernel == 'gaussian':
-            K = cdist(X, X, 'euclidean')
-            K = np.exp(-(K ** 2) / (2. * self.kernelparameter ** 2))
-
-        if self.regularization == 0:
-            w, U = la.eigh(K)
-            U_T = U.T
-            L = np.diag(np.real(w))          # Matrix with eigenvalue on its diagonal
-            #mean_eig_value = np.mean(np.real(w))
-            candidates = np.logspace(np.log10(np.max([np.min(w), 1e-5])), np.log10(np.max(w)))
-            #candidates = np.linspace(0, mean_eig_value, 1000)
-            #print(candidates)
-            error_cv = np.zeros(len(candidates))
-            for index, c in enumerate(candidates):
-                E = np.diag(1/(w + c * np.ones(n)))
-                S = U @ L @ E @ U_T
-                Sy = S @ y
-                S_diag = np.diag(S)
-                error_cv[index] = (1/n) * np.sum(((y - Sy)/(1 - S_diag))**2)
-
-            # Choose C with minim error
-            self.regularization = float(candidates[np.argwhere(error_cv == np.min(error_cv))[0]])
-
-            self.alpha = la.inv((K + self.regularization*np.eye(n))) @ y
-            #self.alpha = np.linalg.solve((K + self.regularization * np.eye(n)), y.T)
-
-            self.alpha = self.alpha[:, np.newaxis]
-        else:
-            self.alpha = la.inv((K + self.regularization*np.eye(n))) @ y
-            #self.alpha = np.linalg.solve((K + self.regularization * np.eye(n)), y.T)
-
-            self.alpha = self.alpha[:, np.newaxis]
-
-        self.X_train = X
-        return self
-
-    def predict(self, X):
-        # Calculate K matrix
-        # Compute K matrix
-        if self.kernel == 'linear':
-            K = self.X_train @ X.T
-        elif self.kernel == 'polynomial':
-            K = (self.X_train @ X.T  + 1) ** self.kernelparameter
-        elif self.kernel == 'gaussian':
-            K = cdist(self.X_train, X, 'euclidean')
-            K = np.exp(-(K ** 2) / (2. * self.kernelparameter ** 2))
-        # Predictions
-        y_pred = (self.alpha.T @ K).T
-        return y_pred
-
-def cv(X, y, method, params, loss_function=zero_one_loss, nfolds=10, nrepetitions=5, roc_f = False):
+def cv(X, y, method, params, loss_function=mean_absolute_error, nfolds=10, nrepetitions=5, roc_f=False):
     def updateProgress(total, progress, details, remain_time):
         length, msg = 100, ""
         progress = float(progress) / float(total)
@@ -107,7 +47,7 @@ def cv(X, y, method, params, loss_function=zero_one_loss, nfolds=10, nrepetition
         diez = int(round(length * progress))
         print(details)
         text = "\r[{}] {:.0f}% {}, remain:{}".format("#" * diez + "-" * (length - diez), round(progress * 100, 0), msg,
-                                                      remain_time)
+                                                     remain_time)
         print(text)
         print()
 
@@ -115,7 +55,7 @@ def cv(X, y, method, params, loss_function=zero_one_loss, nfolds=10, nrepetition
     def get_remaining_time(step, total, time):
         last_times.append(time)
         len_last_t = len(last_times)
-        if len_last_t > 25:
+        if len_last_t > 70:
             last_times.pop(0)
         mean_time = sum(last_times) // len_last_t
         remain_s_tot = mean_time * (total - step + 1)
@@ -131,58 +71,52 @@ def cv(X, y, method, params, loss_function=zero_one_loss, nfolds=10, nrepetition
     # Create list with all possible params combinations
     combinations_params = list(it.product(*(params[Name] for Name in list(params))))
     n_combinations = len(combinations_params)
-
+    print('Total combinations: {}'.format(n_combinations))
     # Init error function containing the average loss for every parameters combination
     error_combinations = np.zeros(n_combinations)
+
     # For loop over all possible params combinations
     runs = n_combinations * nrepetitions
     progress = 0
-    method.auc = 0.0
     for cur_index, local_parameter in enumerate(combinations_params):
+        current_time = time.time()
         # Compute mean r-CV-error for fixed parameters
         e_r_error = 0
         # Init method with current parameters combination
         method_fold = method(*local_parameter)  # local_parameter is a list containing the parameters values used.
-        current_time = time.time()
         for i in range(nrepetitions):
+            #print('repetition number:{}'.format(i))
             # Randomly split the data set ny shuffling the indexes
             indexes_shuffled = indexes.copy()
             np.random.shuffle(indexes_shuffled)
             e_cv_error = 0
-
             # Go over all folds
             for cur_fold in range(nfolds):
                 # extract Training data
                 if cur_fold == (nfolds - 1):
                     test_fold_indexes = indexes_shuffled[(cur_fold * folds_elements_rounded):]
-
-                    y_fold_test = y[test_fold_indexes]
-                    X_fold_test = X[test_fold_indexes, :]
-
-                    train_fold_indexes = np.delete(indexes_shuffled, test_fold_indexes)
-                    X_fold_train = X[train_fold_indexes, :]
-                    y_fold_train = y[train_fold_indexes]
+                    train_fold_indexes = np.delete(indexes_shuffled,
+                                                   np.nonzero(np.isin(indexes_shuffled, test_fold_indexes)))
                 else:
                     test_fold_indexes = indexes_shuffled[(cur_fold * folds_elements_rounded):(
-                            cur_fold * folds_elements_rounded + folds_elements_rounded)]
-                    train_fold_indexes = np.delete(indexes_shuffled, test_fold_indexes)
+                                cur_fold * folds_elements_rounded + folds_elements_rounded)]
+                    train_fold_indexes = np.delete(indexes_shuffled,
+                                                   np.nonzero(np.isin(indexes_shuffled, test_fold_indexes)))
 
-                    y_fold_test = y[test_fold_indexes]
-                    X_fold_test = X[test_fold_indexes, :]
+                Y_test = y[test_fold_indexes]
+                X_test = X[test_fold_indexes, :]
 
-                    X_fold_train = X[train_fold_indexes, :]
-                    y_fold_train = y[train_fold_indexes]
+                X_train = X[train_fold_indexes, :]
+                Y_train = y[train_fold_indexes]
 
                 # Train Model on the fold training data and test it
-                method_fold.fit(X_fold_train, y_fold_train)
-                y_pred = method_fold.predict(X_fold_test)
+                method_fold.fit(X_train, Y_train)
+                y_pred = method_fold.predict(X_test)
 
                 # Sum Error
-                #e_cv_error += loss_function(y_pred, y_fold_test)
-                loss = loss_function(y_fold_test, y_pred)
-                e_cv_error += loss
-            e_r_error += e_cv_error / nfolds
+                e_cv_error += loss_function(Y_test, y_pred)
 
+            e_r_error += (e_cv_error/nfolds)
             last_t = time.time() - current_time
 
             details = "kernel:{},kernelparam:{},regularizer:{}".format(local_parameter[0], local_parameter[1], local_parameter[2])
@@ -190,26 +124,100 @@ def cv(X, y, method, params, loss_function=zero_one_loss, nfolds=10, nrepetition
             progress += 1
 
         final_error = e_r_error / nrepetitions
-        if roc_f:
-            tp, fp = final_error[0,], final_error[1, :]
-            auc = np.abs(np.trapz(tp, fp))
-            error_combinations[cur_index] = auc
-            if method.auc < auc:
-                method.tp = np.squeeze(tp)
-                method.fp = np.squeeze(fp)
-        else:
+        if roc_f==False:
             error_combinations[cur_index] = final_error
 
     # Look for minimum error and which params combination it corresponds to
-    best_param_combination = combinations_params[int(np.argwhere(error_combinations == np.max(error_combinations)))]
-    #best_param_combination = combinations_params[int(np.argwhere(error_combinations == np.min(error_combinations)))]
+    if roc_f==False:
+        best_param_combination = combinations_params[np.argmin(error_combinations)]
+        #best_param_combination = combinations_params[np.argmax(error_combinations)]
 
-    # Init model with the "best" parameters combination and save its correspondent computed cv-loss value
-    best_method = method(*best_param_combination)
-    best_method.cvloss = np.min(error_combinations)
-    best_method.fit(X, y) # Train best model on all the dataset
+        # Init model with the "best" parameters combination and save its correspondent compu   ted cv-loss value
+        best_method = method(*best_param_combination)
+        best_method.cvloss = np.min(error_combinations)
+        best_method.fit(X, y) # Train best model on all the dataset
+
+        print('best method:', best_param_combination)
+        print('best method loss: {}'.format(best_method.cvloss))
+    else:
+        best_method = method(*combinations_params) #combinations_params are already the best
+        best_method.tp = final_error[0]
+        best_method.fp = final_error[1]
 
     return best_method
+
+class krr():
+    def __init__(self, kernel='linear', kernelparameter=1, regularization=0):
+        self.kernel = kernel
+        self.kernelparameter = kernelparameter
+        self.regularization = regularization
+
+    def fit(self, X, y, kernel=False, kernelparameter=False, regularization=False):
+        self.X_train = X.copy()
+        n, d = X.shape
+        if kernel is not False:
+            self.kernel = kernel
+        if kernelparameter is not False:
+            self.kernelparameter = kernelparameter
+        if regularization is not False:
+            self.regularization = regularization
+        else:
+            pass
+
+        # Compute K matrix
+        if self.kernel == 'linear':
+            K = X @ X.T
+        elif self.kernel == 'polynomial':
+            K = (X @ X.T + 1)**self.kernelparameter
+        elif self.kernel == 'gaussian':
+            K = cdist(X, X, 'euclidean')
+            K = np.exp(-(K ** 2) / (2. * self.kernelparameter ** 2))
+        else:
+            pass
+
+        if self.regularization == 0:
+            w, U = la.eigh(K)
+            U_T = U.T
+            L = np.diag(w)          # Matrix with eigenvalue on its diagonal
+            #mean_eig_value = np.mean(np.real(w))
+            candidates = np.logspace(np.log10(np.max([np.min(w), 1e-5])), np.log10(np.max(w)))
+            #candidates = np.linspace(0, mean_eig_value, 1000)
+            error_cv = np.zeros(len(candidates))
+            UL = U @ L
+            for index, c in enumerate(candidates):
+                E = np.diag(1/(w + c * np.ones(n)))
+                S = UL @ E @ U_T
+                Sy = S @ y
+                S_diag = np.diag(S)
+                error_cv[index] = (1/n) * np.sum(((y - Sy)/(1 - S_diag))**2)
+
+            # Choose C with minim error
+            self.regularization = float(candidates[np.argmin(error_cv)])
+
+            #self.alpha = la.inv((K + self.regularization*np.eye(n))) @ y
+            #self.alpha = np.squeeze(self.alpha)
+            self.alpha = np.linalg.solve((K + self.regularization * np.eye(n)), y).T
+        else:
+            #self.alpha = np.dot(la.inv(K + self.regularization*np.eye(n)), y).squeeze()
+            self.alpha = np.linalg.solve((K + self.regularization * np.eye(n)), y).T
+
+        return self
+
+    def predict(self, X):
+        # Compute K matrix
+        if self.kernel == 'linear':
+            K = self.X_train @ X.T
+
+        elif self.kernel == 'polynomial':
+            K = (self.X_train @ X.T + 1) ** self.kernelparameter
+
+        elif self.kernel == 'gaussian':
+            K = cdist(self.X_train, X, 'euclidean')
+            K = np.exp(-(K ** 2) / (2. * self.kernelparameter ** 2))
+
+        # Predictions
+        y_pred = (self.alpha @ K).T
+        return y_pred
 
 def Assignment3():
     plot_a = False  # plot ass (a) distances against energy differences
@@ -343,7 +351,7 @@ def roc_fun(y_true, y_hat, points = 1500, threshold = 0.0):
     TPR = PRED[y_true.flatten() == 1, :].sum(axis=0) / Positive
     FPR = PRED[y_true.flatten() == -1, :].sum(axis=0) / Negative
 
-    return np.array([TPR, FPR])
+    return np.squeeze(np.array([TPR, FPR]))
 
 def Assignment4():
     def readDataSet(filename):
@@ -367,102 +375,127 @@ def Assignment4():
         plt.legend()
         plt.show()
 
-    from sklearn.ensemble import RandomForestClassifier  #used just to test myself
-    from sklearn.metrics import roc_curve
-    from sklearn.metrics import roc_auc_score
+    from sklearn.metrics import roc_curve #just to test my results, remove later
 
     dataset_names = ['banana'] # ['banana','diabetis','flare-solar','image','ringnorm']
     k=0
     results = {}
+    nrep = 2
     for name in dataset_names:
         Xtr, Xtest, Ytr, Ytest = getDataset(name)
         print('Dataset {}, Xtr:{}, Ytr:{},    Xtest:{}, Ytest:{}'.format(name, np.shape(Xtr), np.shape(Ytr), np.shape(Xtest), np.shape(Ytest)))
 
         # b) LOOCV-------------------------------------------------------------------------
-        '''params = {'kernel': ['gaussian'], 'kernelparameter': np.logspace(-2, 2, 10),
+        params = {'kernel': ['gaussian'], 'kernelparameter': [.1, .5, .9, .95, 1.0],
                   'regularization': [0]}
-        cvkrr = cv(Xtr, Ytr, krr, params, loss_function=squared_error_loss, nrepetitions=5)
-        y_pred = cvkrr.predict(Xtest)
+        cvkrr = cv(Xtr, Ytr, krr, params, loss_function=squared_error_loss, nrepetitions=nrep)
+        y_pred_gauss = cvkrr.predict(Xtest)
+        gauss_test_loss = squared_error_loss(Ytest,y_pred_gauss)
+        fpr, tpr, thresholds = roc_curve(Ytest, y_pred_gauss)
+        auc_gauss = np.abs(np.trapz(tpr, fpr))
+        print('AUC for ' + str(name) + ',  LOOCV: %.2f' % auc_gauss)
+        cvloss_gauss, kernelparameter_gauss, regularization_gauss = cvkrr.cvloss, cvkrr.kernelparameter, cvkrr.regularization
+
+        params = {'kernel': ['polynomial'], 'kernelparameter': [1,2,3,4,5,6],
+                  'regularization': [0]}
+        cvkrr = cv(Xtr, Ytr, krr, params, loss_function=squared_error_loss, nrepetitions=nrep)
+        y_pred_poly = cvkrr.predict(Xtest)
+        poly_test_loss = squared_error_loss(Ytest, y_pred_poly)
+        fpr, tpr, thresholds = roc_curve(Ytest, y_pred_poly)
+        auc_poly = np.abs(np.trapz(tpr, fpr))
+        print('AUC for '+str(name)+',  LOOCV: %.2f' % auc_poly)
+
+        MyDict = dict()
+        if poly_test_loss < gauss_test_loss:
+            MyDict['cvloss'] = cvkrr.cvloss
+            MyDict['kernel'] = cvkrr.kernel
+            MyDict['kernelparameter'] = cvkrr.kernelparameter
+            MyDict['regularization'] = cvkrr.regularization
+            MyDict['y_pred'] = y_pred_poly
+            results[name] = MyDict
+            print('Dataset {}, test Loss:{}, kernel:{}, param:{}'.format(name,poly_test_loss, cvkrr.kernel,cvkrr.kernelparameter))
+        else:
+            MyDict['cvloss'] = cvloss_gauss
+            MyDict['kernel'] = 'gaussian'
+            MyDict['kernelparameter'] = kernelparameter_gauss
+            MyDict['regularization'] = regularization_gauss
+            MyDict['y_pred'] = y_pred_gauss
+            results[name] = MyDict
+            print('Dataset {}, test Loss:{}, kernel:{}, param:{}'.format(name, gauss_test_loss, 'gaussian',kernelparameter_gauss))
+
         if k==0:
-            plt.figure()
-            plt.subplot(2, 1, 1)
-            plt.scatter(Xtest[:, 0], Xtest[:, 1], c=Ytest)
-            plt.title('Banana testing data set')
+            fig, ax = plt.subplots(3, 1, figsize=(9, 14))
+            ax[0].scatter(Xtest[:, 0], Xtest[:, 1], c=Ytest)
+            ax[0].set_title('Banana testing data set')
 
-            plt.subplot(2, 1, 2)
-            plt.scatter(Xtest[:, 0], Xtest[:, 1], c=y_pred)
-            plt.title('Banana prediction')
+            ax[1].scatter(Xtest[:, 0], Xtest[:, 1], c=y_pred_gauss)
+            ax[1].set_title('gaussian {}, predicted, test loss:{}, AUC :{}'.format(kernelparameter_gauss,round(gauss_test_loss,2),round(auc_gauss,2)))
+
+            ax[2].scatter(Xtest[:, 0], Xtest[:, 1], c=y_pred_poly)
+            ax[2].set_title('polynomial {}, predicted, test loss:{}, AUC :{}'.format(cvkrr.kernelparameter, round(poly_test_loss, 2), round(auc_poly, 2)))
+
             plt.show()
+
+
+        # c) Proper CV + d) =================================================================================
+        functions, l = [squared_error_loss, mean_absolute_error, zero_one_loss], ['squared_error_loss', 'mean_absolute_error', 'zero_one_loss']
+
+        for f in range(len(functions)):
+            loss_function, lf = functions[f], l[f]
+
+            params = {'kernel': ['gaussian'], 'kernelparameter': [.1, .5, .9, 1.0],
+                      'regularization': np.logspace(-2, 2, 10)}
+            cvkrr = cv(Xtr, Ytr, krr, params, loss_function=loss_function, nrepetitions=nrep)
+            y_pred_gauss = cvkrr.predict(Xtest)
+            gauss_test_loss = loss_function(Ytest, y_pred_gauss)
+            fpr, tpr, thresholds = roc_curve(Ytest, y_pred_gauss)
+            auc_gauss = np.abs(np.trapz(tpr, fpr))
+            print('AUC for ' + str(name) + ',  CV: %.2f' % auc_gauss)
+            cvloss_gauss, kernelparameter_gauss, regularization_gauss = cvkrr.cvloss, cvkrr.kernelparameter, cvkrr.regularization
+            #----------------------------------------------------------------------------------
+            params = {'kernel': ['polynomial'], 'kernelparameter': [1, 2, 3, 4, 5, 6],
+                      'regularization': np.logspace(-2, 2, 10)}
+            cvkrr = cv(Xtr, Ytr, krr, params, loss_function=loss_function, nrepetitions=nrep)
+            y_pred_poly = cvkrr.predict(Xtest)
+            poly_test_loss = loss_function(Ytest, y_pred_poly)
+            fpr, tpr, thresholds = roc_curve(Ytest, y_pred_poly)
+            auc_poly = np.abs(np.trapz(tpr, fpr))
+            print('AUC for ' + str(name) + ',  CV: %.2f' % auc_poly)
+            #----------------------------------------------------------------------------------
+
+            if poly_test_loss < gauss_test_loss:
+                best_params = {'kernel': [cvkrr.kernel], 'kernelparameter': [cvkrr.kernelparameter],
+                               'regularization': [cvkrr.regularization]}
+                loss = ' '+str(round(poly_test_loss,3))
+            else:
+                best_params = {'kernel': ['gaussian'], 'kernelparameter': [kernelparameter_gauss],
+                               'regularization': [regularization_gauss]}
+                loss = ' '+str(round(gauss_test_loss,3))
+
+            print('best_params for roc_fun',best_params)
+
+            roc_cvkrr = cv(Xtr, Ytr, krr, best_params, loss_function=roc_fun, nrepetitions=nrep, roc_f=True)
+            AUC = (np.abs(np.trapz(roc_cvkrr.tp, roc_cvkrr.fp)))
+            print('The best AUC: ' % AUC)
+            plot_roc_curve(roc_cvkrr.fp, roc_cvkrr.tp, '{} - CV, loss:{}'.format(name, lf+loss), AUC)
+
+            if k == 0:
+                fig, ax = plt.subplots(3, 1, figsize=(9, 14))
+                ax[0].scatter(Xtest[:, 0], Xtest[:, 1], c=Ytest)
+                ax[0].set_title('CV-Banana testing data set')
+
+                ax[1].scatter(Xtest[:, 0], Xtest[:, 1], c=y_pred_gauss)
+                ax[1].set_title('CV-gaussian {}, predicted, test loss:{}, {}'.format(kernelparameter_gauss,round(gauss_test_loss, 2),lf))
+
+                ax[2].scatter(Xtest[:, 0], Xtest[:, 1], c=y_pred_poly)
+                ax[2].set_title('CV-polynomial {}, predicted, test loss:{}, {}'.format(cvkrr.kernelparameter,round(poly_test_loss, 2),lf))
+
+                plt.show()
         k+=1
-        y_pred = y_pred[:, 0, 0]
-        auc = roc_auc_score(Ytest, y_pred)
-        print('AUC for '+str(name)+',  LOOCV: %.2f' % auc)'''
 
-        #MyDict = dict()
-        #MyDict['cvloss'] = cvkrr.cvloss
-        #MyDict['kernel'] = cvkrr.kernel
-        #MyDict['kernelparameter'] = cvkrr.kernelparameter
-        #MyDict['regularization'] = cvkrr.regularization
-        #MyDict['y_pred'] = y_pred
-        #results[name] = MyDict
+    with open('results.p', 'wb') as handle:
+        pickle.dump(results, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-
-        # c) Proper CV---------------------------------------------------------------------
-        params = {'kernel': ['gaussian'], 'kernelparameter': np.logspace(-2, 2, 10),
-                  'regularization': np.logspace(-2, 2, 10)}
-        #params = {'kernel': ['gaussian'], 'kernelparameter': [1.0],
-        #          'regularization': np.logspace(-2, 2, 10)}
-        cvkrr = cv(Xtr, Ytr, krr, params, loss_function=squared_error_loss, nrepetitions=3)
-        y_pred = cvkrr.predict(Xtest)
-
-        model = RandomForestClassifier()
-        model.fit(Xtr, Ytr)
-
-        probs = model.predict_proba(Xtest)
-        probs = probs[:, 1]
-        auc = roc_auc_score(Ytest, probs)
-        print('AUC: %.2f' % auc)
-
-        y_pred = y_pred[:, 0, 0]
-        auc = roc_auc_score(Ytest, y_pred)
-        print('AUC own: %.2f' % auc)
-
-        print('----------------------------------------')
-        r = roc_fun(Ytest, y_pred)
-        tp, fp = r[0,],r[1,:]
-        AUC2 = np.abs(np.trapz(tp, fp))
-        print('AUC last', AUC2)
-
-        best_params = {'kernel': [cvkrr.kernel], 'kernelparameter': [cvkrr.kernelparameter],
-                  'regularization': [cvkrr.regularization]}
-        roc_cvkrr = cv(Xtr, Ytr, krr, best_params, loss_function=roc_fun, nrepetitions=3, roc_f=True)
-        y_pred = roc_cvkrr.predict(Xtest)
-        auc = np.abs(np.trapz(roc_cvkrr.tp, roc_cvkrr.fp))
-        print('The best AUC: %.2f' % auc)
-        plot_roc_curve(roc_cvkrr.fp, roc_cvkrr.tp, 'ROC for {} dataset - CV'.format(name), round(auc, 3))
-
-        y_pred = y_pred[:, 0, 0]
-        auc = roc_auc_score(Ytest, y_pred)
-        print('AUC: %.2f' % auc)
-        fpr, tpr, thresholds = roc_curve(Ytest, y_pred)
-        plot_roc_curve(fpr, tpr, 'Last ROC for {} dataset - CV'.format(name), round(auc, 3))
-
-
-        #d) same with 0-1 loss ===========================================================
-        '''params = {'kernel': ['gaussian'], 'kernelparameter': [1.0],
-                  'regularization': np.logspace(-2, 2, 10)}
-        params = {'kernel': ['gaussian'], 'kernelparameter': np.logspace(-2, 2, 10),
-                  'regularization': [0]}
-        cvkrr = cv(Xtr, Ytr, krr, params, loss_function=zero_one_loss, nrepetitions=3)
-        y_pred = cvkrr.predict(Xtest)
-        y_pred = y_pred[:, 0, 0]
-        auc = roc_auc_score(Ytest, y_pred)
-        print('AUC zero_one_loss: %.2f' % auc)
-        fpr, tpr, thresholds = roc_curve(Ytest, y_pred)
-        plot_roc_curve(fpr, tpr, 'ROC for {} dataset - CV, Zero_One_loss'.format(name), round(auc, 3))'''
-
-    #with open('results.p', 'wb') as handle:
-    #    pickle.dump(results, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 if __name__ == '__main__':
     print('Main')
