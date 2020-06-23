@@ -1,5 +1,4 @@
 
-
 import numpy as np
 import scipy.linalg as la
 import itertools as it
@@ -12,7 +11,7 @@ import scipy
 import pandas as pd
 import pickle
 
-def zero_one_loss(y_true, y_pred):  # return number of misclassified labels
+def zero_one_loss(y_true, y_pred): 
     n= len(y_true)
     s = np.sum(y_true == np.sign(y_pred))
     return (1.0/n)*( n - s)
@@ -25,7 +24,7 @@ def squared_error_loss(y_true, y_pred):
     loss = np.mean((y_true - y_pred) ** 2)
     return loss
 
-def cv(X, y, method, params, loss_function=mean_absolute_error, nfolds=10, nrepetitions=5, roc_f=False):
+def cv(X, y, method, params, loss_function=mean_absolute_error, nfolds=10, nrepetitions=5, roc_f=False, verbose = True):
     def updateProgress(total, progress, details, remain_time):
         length, msg = 100, ""
         progress = float(progress) / float(total)
@@ -42,9 +41,9 @@ def cv(X, y, method, params, loss_function=mean_absolute_error, nfolds=10, nrepe
     def get_remaining_time(step, total, time):
         last_times.append(time)
         len_last_t = len(last_times)
-        if len_last_t > 70:
+        if len_last_t > 120:
             last_times.pop(0)
-        mean_time = sum(last_times) // len_last_t
+        mean_time = np.mean(last_times)
         remain_s_tot = mean_time * (total - step + 1)
         minutes = remain_s_tot // 60
         seconds = remain_s_tot % 60
@@ -106,9 +105,10 @@ def cv(X, y, method, params, loss_function=mean_absolute_error, nfolds=10, nrepe
             e_r_error += (e_cv_error/nfolds)
             last_t = time.time() - current_time
 
-            details = "kernel:{},kernelparam:{},regularizer:{}".format(local_parameter[0], local_parameter[1], local_parameter[2])
-            updateProgress(runs, progress + 1, details, get_remaining_time(progress + 1, runs, last_t))
-            progress += 1
+            if verbose:
+                details = "kernel:{},kernelparam:{},regularizer:{}".format(local_parameter[0], local_parameter[1], local_parameter[2])
+                updateProgress(runs, progress + 1, details, get_remaining_time(progress + 1, runs, last_t))
+                progress += 1
 
         final_error = e_r_error / nrepetitions
         if roc_f==False:
@@ -186,7 +186,11 @@ class krr():
             self.alpha = np.linalg.solve((K + self.regularization * np.eye(n)), y).T
         else:
             #self.alpha = np.dot(la.inv(K + self.regularization*np.eye(n)), y).squeeze()
-            self.alpha = np.linalg.solve((K + self.regularization * np.eye(n)), y).T
+            J = K + self.regularization * np.eye(n)
+            if np.linalg.matrix_rank(J) != J.shape[0]:  # check singularity
+                print('Matrix is singular=================================')
+                J = J + (np.eye(np.shape(J)[0]) * 0.5)  # regularization
+            self.alpha = np.linalg.solve(J, y).T
 
         return self
 
@@ -362,12 +366,10 @@ def Assignment4():
         plt.legend()
         plt.show()
 
-    from sklearn.metrics import roc_curve #just to test my results, remove later
-
-    dataset_names = ['banana'] # ['banana','diabetis','flare-solar','image','ringnorm']
+    dataset_names = ['banana','diabetis','flare-solar','image','ringnorm']
     k=0
     results = {}
-    nrep = 2
+    nrep = 5
     for name in dataset_names:
         Xtr, Xtest, Ytr, Ytest = getDataset(name)
         print('Dataset {}, Xtr:{}, Ytr:{},    Xtest:{}, Ytest:{}'.format(name, np.shape(Xtr), np.shape(Ytr), np.shape(Xtest), np.shape(Ytest)))
@@ -378,106 +380,100 @@ def Assignment4():
         cvkrr = cv(Xtr, Ytr, krr, params, loss_function=squared_error_loss, nrepetitions=nrep)
         y_pred_gauss = cvkrr.predict(Xtest)
         gauss_test_loss = squared_error_loss(Ytest,y_pred_gauss)
-        fpr, tpr, thresholds = roc_curve(Ytest, y_pred_gauss)
-        auc_gauss = np.abs(np.trapz(tpr, fpr))
-        print('AUC for ' + str(name) + ',  LOOCV: %.2f' % auc_gauss)
-        cvloss_gauss, kernelparameter_gauss, regularization_gauss = cvkrr.cvloss, cvkrr.kernelparameter, cvkrr.regularization
-
-        params = {'kernel': ['polynomial'], 'kernelparameter': [1,2,3,4,5,6],
+        cvloss, kernel, kernelparameter, regularization = cvkrr.cvloss, cvkrr.kernel,  cvkrr.kernelparameter, cvkrr.regularization
+        y_pred = y_pred_gauss
+        test_loss = gauss_test_loss
+        print('got ',cvkrr.regularization)
+        params = {'kernel': ['polynomial'], 'kernelparameter': [1,2,3,4,5],
                   'regularization': [0]}
         cvkrr = cv(Xtr, Ytr, krr, params, loss_function=squared_error_loss, nrepetitions=nrep)
         y_pred_poly = cvkrr.predict(Xtest)
         poly_test_loss = squared_error_loss(Ytest, y_pred_poly)
-        fpr, tpr, thresholds = roc_curve(Ytest, y_pred_poly)
-        auc_poly = np.abs(np.trapz(tpr, fpr))
-        print('AUC for '+str(name)+',  LOOCV: %.2f' % auc_poly)
+
+        if poly_test_loss < gauss_test_loss:
+            test_loss = poly_test_loss
+            cvloss = cvkrr.cvloss
+            kernel = cvkrr.kernel
+            kernelparameter = cvkrr.kernelparameter
+            regularization = cvkrr.regularization
+            y_pred = y_pred_poly
+        loss = ' ' + str(round(test_loss, 3))
 
         MyDict = dict()
-        if poly_test_loss < gauss_test_loss:
-            MyDict['cvloss'] = cvkrr.cvloss
-            MyDict['kernel'] = cvkrr.kernel
-            MyDict['kernelparameter'] = cvkrr.kernelparameter
-            MyDict['regularization'] = cvkrr.regularization
-            MyDict['y_pred'] = y_pred_poly
-            results[name] = MyDict
-            print('Dataset {}, test Loss:{}, kernel:{}, param:{}'.format(name,poly_test_loss, cvkrr.kernel,cvkrr.kernelparameter))
-        else:
-            MyDict['cvloss'] = cvloss_gauss
-            MyDict['kernel'] = 'gaussian'
-            MyDict['kernelparameter'] = kernelparameter_gauss
-            MyDict['regularization'] = regularization_gauss
-            MyDict['y_pred'] = y_pred_gauss
-            results[name] = MyDict
-            print('Dataset {}, test Loss:{}, kernel:{}, param:{}'.format(name, gauss_test_loss, 'gaussian',kernelparameter_gauss))
+        MyDict['cvloss'] = cvloss
+        MyDict['kernel'] = kernel
+        MyDict['kernelparameter'] = kernelparameter
+        MyDict['regularization'] = regularization
+        MyDict['y_pred'] = y_pred
+        results[name] = MyDict
+
+        best_params = {'kernel': [kernel], 'kernelparameter': [kernelparameter],
+                       'regularization': [regularization]}
+        print('best_params ',best_params)
+        roc_cvkrr = cv(Xtr, Ytr, krr, best_params, loss_function=roc_fun, nrepetitions=nrep, roc_f=True)
+        AUC = round((np.abs(np.trapz(roc_cvkrr.tp, roc_cvkrr.fp))),3)
+        plot_roc_curve(roc_cvkrr.fp, roc_cvkrr.tp, '{} - LOOCV, loss:{}'.format(name, 'squared_error_loss' + loss), AUC)
+
+        print('Dataset:{}, cvloss:{}, test loss:{},kernel:{},kernelparameter:{},regularization:{}, AUC:{}'.format(str(name),cvloss,test_loss,kernel,kernelparameter,regularization,AUC))
 
         if k==0:
-            fig, ax = plt.subplots(3, 1, figsize=(9, 14))
+            fig, ax = plt.subplots(2, 1, figsize=(10, 10))
             ax[0].scatter(Xtest[:, 0], Xtest[:, 1], c=Ytest)
-            ax[0].set_title('Banana testing data set')
+            ax[0].set_title('Banana testing data')
 
-            ax[1].scatter(Xtest[:, 0], Xtest[:, 1], c=y_pred_gauss)
-            ax[1].set_title('gaussian {}, predicted, test loss:{}, AUC :{}'.format(kernelparameter_gauss,round(gauss_test_loss,2),round(auc_gauss,2)))
-
-            ax[2].scatter(Xtest[:, 0], Xtest[:, 1], c=y_pred_poly)
-            ax[2].set_title('polynomial {}, predicted, test loss:{}, AUC :{}'.format(cvkrr.kernelparameter, round(poly_test_loss, 2), round(auc_poly, 2)))
+            ax[1].scatter(Xtest[:, 0], Xtest[:, 1], c=y_pred)
+            ax[1].set_title('Banana predicted')
 
             plt.show()
 
-
         # c) Proper CV + d) =================================================================================
         functions, l = [squared_error_loss, mean_absolute_error, zero_one_loss], ['squared_error_loss', 'mean_absolute_error', 'zero_one_loss']
-
         for f in range(len(functions)):
             loss_function, lf = functions[f], l[f]
 
-            params = {'kernel': ['gaussian'], 'kernelparameter': [.1, .5, .9, 1.0],
+            params = {'kernel': ['gaussian'], 'kernelparameter': [.1, .5, .9, .95, 1.0],
                       'regularization': np.logspace(-2, 2, 10)}
             cvkrr = cv(Xtr, Ytr, krr, params, loss_function=loss_function, nrepetitions=nrep)
             y_pred_gauss = cvkrr.predict(Xtest)
             gauss_test_loss = loss_function(Ytest, y_pred_gauss)
-            fpr, tpr, thresholds = roc_curve(Ytest, y_pred_gauss)
-            auc_gauss = np.abs(np.trapz(tpr, fpr))
-            print('AUC for ' + str(name) + ',  CV: %.2f' % auc_gauss)
-            cvloss_gauss, kernelparameter_gauss, regularization_gauss = cvkrr.cvloss, cvkrr.kernelparameter, cvkrr.regularization
+            cvloss, kernel, kernelparameter, regularization = cvkrr.cvloss, cvkrr.kernel, cvkrr.kernelparameter, cvkrr.regularization
+            y_pred = y_pred_gauss
+            test_loss = gauss_test_loss
             #----------------------------------------------------------------------------------
-            params = {'kernel': ['polynomial'], 'kernelparameter': [1, 2, 3, 4, 5, 6],
+            params = {'kernel': ['polynomial'], 'kernelparameter': [1, 2, 3, 4, 5],
                       'regularization': np.logspace(-2, 2, 10)}
             cvkrr = cv(Xtr, Ytr, krr, params, loss_function=loss_function, nrepetitions=nrep)
             y_pred_poly = cvkrr.predict(Xtest)
             poly_test_loss = loss_function(Ytest, y_pred_poly)
-            fpr, tpr, thresholds = roc_curve(Ytest, y_pred_poly)
-            auc_poly = np.abs(np.trapz(tpr, fpr))
-            print('AUC for ' + str(name) + ',  CV: %.2f' % auc_poly)
-            #----------------------------------------------------------------------------------
-
             if poly_test_loss < gauss_test_loss:
-                best_params = {'kernel': [cvkrr.kernel], 'kernelparameter': [cvkrr.kernelparameter],
-                               'regularization': [cvkrr.regularization]}
-                loss = ' '+str(round(poly_test_loss,3))
-            else:
-                best_params = {'kernel': ['gaussian'], 'kernelparameter': [kernelparameter_gauss],
-                               'regularization': [regularization_gauss]}
-                loss = ' '+str(round(gauss_test_loss,3))
+                test_loss = poly_test_loss
+                cvloss = cvkrr.cvloss
+                kernel = cvkrr.kernel
+                kernelparameter = cvkrr.kernelparameter
+                regularization = cvkrr.regularization
+                y_pred = y_pred_poly
+            loss = ' ' + str(round(test_loss, 3))
 
+            best_params = {'kernel': [kernel], 'kernelparameter': [kernelparameter],
+                           'regularization': [regularization]}
             print('best_params for roc_fun',best_params)
 
             roc_cvkrr = cv(Xtr, Ytr, krr, best_params, loss_function=roc_fun, nrepetitions=nrep, roc_f=True)
-            AUC = (np.abs(np.trapz(roc_cvkrr.tp, roc_cvkrr.fp)))
-            print('The best AUC: ' % AUC)
-            plot_roc_curve(roc_cvkrr.fp, roc_cvkrr.tp, '{} - CV, loss:{}'.format(name, lf+loss), AUC)
+            AUC = round((np.abs(np.trapz(roc_cvkrr.tp, roc_cvkrr.fp))), 3)
+            plot_roc_curve(roc_cvkrr.fp, roc_cvkrr.tp, '{} - CV, loss:{}'.format(name, lf + loss),AUC)
 
             if k == 0:
-                fig, ax = plt.subplots(3, 1, figsize=(9, 14))
+                fig, ax = plt.subplots(2, 1, figsize=(10, 10))
                 ax[0].scatter(Xtest[:, 0], Xtest[:, 1], c=Ytest)
-                ax[0].set_title('CV-Banana testing data set')
-
-                ax[1].scatter(Xtest[:, 0], Xtest[:, 1], c=y_pred_gauss)
-                ax[1].set_title('CV-gaussian {}, predicted, test loss:{}, {}'.format(kernelparameter_gauss,round(gauss_test_loss, 2),lf))
-
-                ax[2].scatter(Xtest[:, 0], Xtest[:, 1], c=y_pred_poly)
-                ax[2].set_title('CV-polynomial {}, predicted, test loss:{}, {}'.format(cvkrr.kernelparameter,round(poly_test_loss, 2),lf))
+                ax[0].set_title('Banana testing data')
+                ax[1].scatter(Xtest[:, 0], Xtest[:, 1], c=y_pred)
+                ax[1].set_title('Banana predicted')
 
                 plt.show()
+
+            print('Dataset:{}, cvloss:{}, test loss:{},kernel:{},kernelparameter:{},regularization:{}, AUC:{}'.format(str(name),cvloss,test_loss,
+                                                                                                              kernel,kernelparameter,regularization,AUC))
+
         k+=1
 
     with open('results.p', 'wb') as handle:
@@ -486,6 +482,7 @@ def Assignment4():
 
 if __name__ == '__main__':
     print('Main')
-    Assignment4()
+    #Assignment3()
+    #Assignment4()
 
 
