@@ -292,11 +292,11 @@ def Assignment3():
               'regularization': regularization_c}
 
     if train_cv:
-        cvkrr = imp.cv(X_cv, y_cv, imp.krr, params, loss_function=imp.mean_absolute_error,
+        cvkrr = cv(X_cv, y_cv, krr, params, loss_function=mean_absolute_error,
                    nrepetitions=5, nfolds=5)
         # Error on the test set
         y_pred = cvkrr.predict(X_test)
-        test_error = imp.mean_absolute_error(y_true=np.squeeze(y_test), y_pred=y_pred)
+        test_error = mean_absolute_error(y_true=np.squeeze(y_test), y_pred=y_pred)
         print('Test Error: {}'.format(test_error))
     else:
         pass
@@ -313,11 +313,11 @@ def Assignment3():
 
         for index, n_cur in enumerate(n_model_train):
             # Train
-            model = imp.krr(kernel='gaussian', kernelparameter=width, regularization=C)
+            model = krr(kernel='gaussian', kernelparameter=width, regularization=C)
             model.fit(X=X_train[:n_cur, :], y= np.squeeze(y_train[:n_cur, :]))
             # Test model on the test set
             y_pred = model.predict(X=X_test)
-            errors[index] = imp.mean_absolute_error(np.squeeze(y_test), y_pred)
+            errors[index] = mean_absolute_error(np.squeeze(y_test), y_pred)
 
         # plot error(N_train)
         plt.figure(figsize=(5, 5))
@@ -350,7 +350,7 @@ def Assignment3():
 
 
         for c_cur in C_all:
-            model = imp.krr(kernel='gaussian', kernelparameter=width, regularization=c_cur)
+            model = krr(kernel='gaussian', kernelparameter=width, regularization=c_cur)
             model.fit(X=X_cv, y=y_cv)
 
             y_pred_train = model.predict(X_cv)
@@ -384,8 +384,8 @@ def Assignment3():
             plt.tick_params(axis='both', which='minor', labelsize=10)
 
             print('Regularization c: {} , Gaussian width: {}'.format(c_cur, width))
-            print('MAE ERROR TRAIN: {}'.format(imp.mean_absolute_error(y_pred_train, y_cv)))
-            print('MAE ERROR TEST: {}'.format(imp.mean_absolute_error(y_pred_test, y_test)))
+            print('MAE ERROR TRAIN: {}'.format(mean_absolute_error(y_pred_train, y_cv)))
+            print('MAE ERROR TEST: {}'.format(mean_absolute_error(y_pred_test, y_test)))
             print('----')
     else:
         pass
