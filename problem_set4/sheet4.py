@@ -134,7 +134,7 @@ class neural_network(Module):
             output = self.loss(self.forward(Xtrain[I]), ytrain[I])
             self.train = False
             Ltrain += [output.item()]
-            print('Cost ',output.item())
+            #print('Cost ',output.item())
 
             #print('store ',self.store.keys())
             # backpropagation - compute gradients-------------------------------------------------------
@@ -157,7 +157,7 @@ class neural_network(Module):
             self.biases[-1] = updated_b
 
             for l in range(self.L-1, 0, -1):
-                print(l)
+                #print(l)
                 h1 = self.store['h_'+str(l)]
                 delta = deltaL.dot(self.store['W_'+str(l+1)].detach().numpy().T) * relu_derivative(h1).detach().numpy()
                 _w = self.store['f_'+str(l-1)].detach().numpy().T.dot(delta)
@@ -297,6 +297,53 @@ class neural_network(Module):
             plt.legend()
             plt.show()
 
+# This is already implemented for your convenience
+class svm_sklearn():
+    """ SVM via scikit-learn """
+    def __init__(self, kernel='linear', kernelparameter=1., C=1.):
+        if kernel == 'gaussian':
+            kernel = 'rbf'
+        self.clf = sklearn.svm.SVC(C=C,
+                                   kernel=kernel,
+                                   gamma=1./(1./2. * kernelparameter ** 2),
+                                   degree=kernelparameter,
+                                   coef0=kernelparameter)
+
+    def fit(self, X, y):
+        self.clf.fit(X, y)
+        self.X_sv = X[self.clf.support_, :]
+        self.y_sv = y[self.clf.support_]
+
+    def predict(self, X):
+        return self.clf.decision_function(X)
+
+def plot_boundary_2d(X, y, model):
+    print('X:{}, y:{}'.format(np.shape(X), np.shape(y)))
+    def make_meshgrid(x, y, h=.05):
+        min_x, max_x = x.min() - 1, x.max() + 1
+        min_y, max_y = y.min() - 1, y.max() + 1
+        x_, y_ = np.meshgrid(np.arange(min_x, max_x, h), np.arange(min_y, max_y, h))
+        return x_, y_
+
+    x_, y_ = make_meshgrid(X[:, 0], X[:, 1])
+    def plot_contours(clf, x_, y_, **params):
+        Z = clf.predict(np.c_[x_.ravel(), y_.ravel()])
+        if len(np.shape(Z)) != 1:
+            Z = np.squeeze(Z[:, 0])
+
+        Z = Z.reshape(np.shape(x_))
+        plt.contourf(x_, y_, Z, **params)
+
+    plot_contours(model, x_, y_, alpha=0.9)
+    plt.scatter(X[:, 0], X[:, 1], c=y, s=20, edgecolors='k')
+    plt.title('Boundary')
+    plt.show()
 
 if __name__ == '__main__':
     print('Main')
+
+    '''test_plot_boundary_2d---------------------------
+        X:(60, 2), y:(60,)
+        Z  (21760,)
+        x_  (128, 170)
+        1'''
