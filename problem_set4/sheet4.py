@@ -10,6 +10,8 @@ import torch
 from scipy.spatial.distance import cdist
 import itertools as it
 import time
+from itertools import combinations
+
 
 from torch.optim import SGD #just to compare with my implementation
 from torch.nn import Module, Parameter, ParameterList
@@ -304,7 +306,7 @@ class svm_qp():
         self.Y_sv = None
 
     def fit(self, X, Y):
-        print('X:{},Y:{}'.format(np.shape(X), np.shape(Y)))
+        #print('X:{},Y:{}'.format(np.shape(X), np.shape(Y)))
         m, n = X.shape
 
         K = buildKernel(X=X, X_train=X, kernel=self.kernel, kernelparameter=self.kernelparameter)
@@ -336,13 +338,14 @@ class svm_qp():
         self.alpha_sv = alpha[suport_vectors]
         self.X_sv = X[suport_vectors]
         self.Y_sv = Y[suport_vectors]
-        print("%d support vectors out of %d points" % (len(self.alpha_sv), m))
+        #print('{} SV from {}'.format(len(self.alpha_sv), m))
 
         self.b = 0.0
         for i in range(len(self.alpha_sv)):
             self.b += self.Y_sv[i]
             self.b -= np.sum(self.alpha_sv * self.Y_sv * K[idx[i], suport_vectors])
-        self.b = self.b / len(self.alpha_sv)
+        if len(self.alpha_sv) > 0:
+            self.b = self.b / len(self.alpha_sv)
 
         self.w = np.sum((alpha @ Y) * X, axis=0)
 
@@ -354,7 +357,6 @@ class svm_qp():
                 k = buildKernel(X=X[i], X_train=vector_x, kernel=self.kernel, kernelparameter=self.kernelparameter)
                 ypred[i] += vector * vector_y * k
         prediction = ypred + self.b
-
         return np.sign(prediction)
 
 def loss_function(Y_pred,Y_te):
@@ -430,7 +432,7 @@ def cv(X, y, method, params, loss_function=loss_function, nfolds=10, nrepetition
                 y_pred = method_fold.predict(X_test)
 
                 # Sum Error
-                e_cv_error += loss_function(Y_test, y_pred)
+                e_cv_error += loss_function(y_pred, Y_test)
 
             e_r_error += (e_cv_error/nfolds)
             last_t = time.time() - current_time
@@ -522,7 +524,7 @@ def Assignment4():
     #Underfit fit
     print('***************Underfit results**********************')
     model = svm_qp(kernel='linear', C=None)
-    #model = svm_qp(kernel='gaussian', C=None) #to do find parameters for underfitting
+    #model = svm_qp(kernel='gaussian', kernelparameter=7, C=None)
     model.fit(X_tr, Y_tr)
     Y_pred = model.predict(X_tr)
     loss = float(np.sum(np.sign(Y_tr) != np.sign(Y_pred))) / float(len(Y_tr))
@@ -555,6 +557,82 @@ def Assignment4():
     AUC = round((np.abs(np.trapz(CV.tp, CV.fp))), 3)
     plot_roc_curve(CV.fp, CV.tp, '', AUC)
 
+def Assignment5():
+    dataset = np.load('data/iris.npz')
+    print(dataset.files)
+    X = dataset['X'].T
+    Y = dataset['Y'].T
+    print('X:{}, Y:{}'.format(np.shape(X), np.shape(Y)))
+    print(Y)
+
+    reg = list(np.linspace(1, 500, num=20))
+    reg.append(None)
+    params = {'kernel': ['polynomial', 'gaussian'], 'kernelparameter': [1., 2., 3.],
+              'regularization': reg}
+    from sklearn.model_selection import train_test_split
+    from sklearn import metrics
+
+    #split dataset in all possible combinations of one vs others
+    dts = list(combinations([1, 2, 3], 2))
+    for positive_class in reversed(dts):
+        negative_class = (set([1, 2, 3]) - set(positive_class)).pop()
+        print('Possitive:{} VS Negative:{}'.format(positive_class,negative_class))
+
+        idx_negative = Y==negative_class
+        idx_positive = Y != negative_class
+
+        Y_data = Y.copy()
+        Y_data[idx_positive] = 1
+        Y_data[idx_negative] = -1
+        X_data = X.copy()
+        print('Y_data ',Y_data)
+        # Split dataset into training set and test set
+        X_train, X_test, y_train, y_test = train_test_split(X_data, Y_data, test_size=0.3,
+                                                            random_state=100)
+
+        print('X_tr:{}, Y_tr:{}, X_te:{}, Y_te:{}'.format(np.shape(X_train), np.shape(y_train), np.shape(X_test), np.shape(y_test)))
+
+        # cv for each of the combination
+        CV = cv(X_train, y_train, svm_qp, params, loss_function=loss_function,nfolds=20, nrepetitions=1)
+        Y_pred = CV.predict(X_test)
+        loss = loss_function(Y_pred, y_test)
+
+        print('********************Results**********************')
+        print("Accuracy:", metrics.accuracy_score(y_test, Y_pred))
+        print("Precision:", metrics.precision_score(y_test, Y_pred))
+        print("Recall:", metrics.recall_score(y_test, Y_pred))
+
+        print('Possitive:{} VS Negative:{}'.format(positive_class, negative_class))
+        cvloss, kernel, kernelparameter, C = CV.cvloss, CV.kernel, CV.kernelparameter, CV.C
+        print('cvloss:{}, kernel:{}, kernelparameter:{}, C:{}'.format(cvloss, kernel, kernelparameter, C))
+        print('Test loss ', loss)
+
+        myX = X_data[:,:2].copy()
+        CV.fit(myX, Y_data)
+        # -ROC-------------------------------------
+        best_params = {'kernel': [CV.kernel], 'kernelparameter': [CV.kernelparameter],
+                       'regularization': [CV.C]}
+        plot_boundary_2d(myX, Y, CV, 'CV model  {} VS {}, cvloss:{}'.format(positive_class,negative_class,cvloss))
+        CV = cv(X_data, Y_data, svm_qp, best_params, loss_function=roc_fun, nrepetitions=2, roc_f=True)
+        AUC = round((np.abs(np.trapz(CV.tp, CV.fp))), 3)
+        plot_roc_curve(CV.fp, CV.tp, 'CV SVM  {} VS {}'.format(positive_class,negative_class), AUC)
+
+        C = svm_qp(kernel='linear', C=1.)
+        C.fit(myX,Y_data)
+        Y_pred = C.predict(X_data[:,:2])
+        loss = float(np.sum(np.sign(Y_data) != np.sign(Y_pred))) / float(len(Y_data))
+        plot_boundary_2d(myX, Y, C, 'linear kernel  {} VS {}, loss:{}'.format(positive_class,negative_class,loss))
+        best_params = {'kernel': ['linear'], 'kernelparameter': [1],
+                       'regularization': [1]}
+        CV = cv(X_data, Y_data, svm_qp, best_params, loss_function=roc_fun, nrepetitions=2, roc_f=True)
+        AUC = round((np.abs(np.trapz(CV.tp, CV.fp))), 3)
+        plot_roc_curve(CV.fp, CV.tp, 'linear kernel  {} VS {} SVM'.format(positive_class,negative_class), AUC)
+
+
+        print('-------------------------------------------------------------------\n\n')
+    print('class 2 and 3 arent linearly separable')
+
 if __name__ == '__main__':
     print('Main')
-    Assignment4()
+    #Assignment4()
+    #Assignment5()
