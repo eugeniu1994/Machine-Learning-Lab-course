@@ -15,6 +15,7 @@ from itertools import combinations
 
 from torch.optim import SGD #just to compare with my implementation
 from torch.nn import Module, Parameter, ParameterList
+from torch.autograd import Variable
 
 # This is already implemented for your convenience
 class svm_sklearn():
@@ -55,11 +56,13 @@ def plot_boundary_2d(X, y, model, title='Boundary'):
 
     plot_contours(model, x_, y_, alpha=0.9)
     plt.scatter(X[:, 0], X[:, 1], c=y, s=20, edgecolors='k')
+    if isinstance(model, svm_sklearn) or isinstance(model, svm_qp):
+        plt.scatter(model.X_sv[:, 0], model.X_sv[:, 1], c='r', s=40, marker = 'x', edgecolors='k')
     plt.title(title)
     plt.show()
 
 class neural_network(Module):
-    def __init__(self, layers=[2,100,2], scale=.1, p=None, lr=None, lam=None):
+    def __init__(self, layers=[2,100,2], scale=.1, p=None, lr=None, lam=None, use_ReLU = True):
         super().__init__()
         self.weights = ParameterList([Parameter(scale*torch.randn(m, n)) for m, n in zip(layers[:-1], layers[1:])])
         self.biases = ParameterList([Parameter(scale*torch.randn(n)) for n in layers[1:]])
@@ -71,6 +74,7 @@ class neural_network(Module):
         self.L = len(self.weights)
 
         self.memory = {}
+        self.use_ReLU = use_ReLU
 
     def relu(self, X, W, b, layer = None):
         if self.train:
@@ -113,7 +117,7 @@ class neural_network(Module):
         X = torch.tensor(X, dtype=torch.float)
         A = X
         for l in range(self.L-1):
-            A = self.relu(X=A,W=self.weights[l],b=self.biases[l], layer=str(l+1))
+            A = self.relu(X=A,W=self.weights[l],b=self.biases[l], layer=str(l+1)) if self.use_ReLU else self.Sigmoid(X=A,W=self.weights[l],b=self.biases[l], layer=str(l+1))
         Y_hat = self.softmax(X=A,W=self.weights[-1], b=self.biases[-1], layer=str(self.L))
         return Y_hat
 
@@ -142,6 +146,23 @@ class neural_network(Module):
         y[y < 0] = 0
         return y
 
+    def Sigmoid(self, X, W, b, layer = None):
+        Z = X.mm(W) + b
+        scalar = torch.FloatTensor([1]).expand_as(Z)
+        A = scalar/(scalar + torch.exp(-Z))
+        if layer is not None:
+            self.memory['W_' + layer] = W
+            self.memory['b_' + layer] = b
+            self.memory['A_' + layer] = A
+            self.memory['Z_' + layer] = Z
+        return A
+
+    def SigmoidDerivative(self, X):
+        x = X.detach().clone().numpy()
+        A =  np.multiply(x, 1 - x)
+        x = torch.from_numpy(A.astype(np.float32)).requires_grad_()
+        return x
+
     def softmax_derivative(self, s):
         s = s[0]
         jacobian_m = torch.diag(s)
@@ -160,12 +181,15 @@ class neural_network(Module):
         Y = Y.detach().clone().numpy()
         A = (self.memory["A_" + str(self.L)]).detach().clone().numpy()
 
-
         #dA = -np.divide(Y, A) + np.divide(1 - Y, 1 - A) #normal cross entropy derivative
         dA = A - Y                                       #stable cross entropy derivative
 
         #here add softmax instead of relu_derivative---to do
-        dZ = (dA * self.relu_derivative(self.memory["Z_" + str(self.L)]).detach().clone().numpy()).T          #with relu derivative
+        if self.use_ReLU:
+            dZ = (dA * self.relu_derivative(self.memory["Z_" + str(self.L)]).detach().clone().numpy()).T  #with relu derivative
+        else:
+            dZ = (dA * self.SigmoidDerivative(self.memory["Z_" + str(self.L)]).detach().clone().numpy()).T
+
         #dZ = np.dot(self.softmax_derivative(self.memory["Z_" + str(self.L)].T).detach().clone().numpy(), dA).T #with softmax derivative
 
         dW = dZ.dot(self.memory["A_" + str(self.L - 1)].detach().clone().numpy())
@@ -182,7 +206,11 @@ class neural_network(Module):
 
         for l in range(self.L - 1, 0, -1):
             #print('l is {}=--------------------------------'.format(l))
-            dZ = (dAPrev * self.relu_derivative(self.memory["Z_" + str(l)]).detach().clone().numpy()).T
+            if self.use_ReLU:
+                dZ = (dAPrev * self.relu_derivative(self.memory["Z_" + str(l)]).detach().clone().numpy()).T
+            else:
+                dZ = (dAPrev * self.relu_derivative(self.memory["Z_" + str(l)]).detach().clone().numpy()).T
+
             dW = dZ.dot(self.memory["A_" + str(l - 1)].detach().clone().numpy())
             db = np.sum(dZ, axis=1, keepdims=True)
 
@@ -239,14 +267,15 @@ class neural_network(Module):
             Aval += [np.array(outval.argmax(-1) == yval.argmax(-1)).mean()]
 
         if plot:
-            plt.plot(range(nsteps), Ltrain, label='Training loss')
-            plt.plot(range(nsteps), Lval, label='Validation loss')
-            plt.plot(range(nsteps), Aval, label='Validation acc')
+            plt.plot(range(nsteps), Ltrain, label='Training loss '+str(round(Ltrain[-1],4)))
+            plt.plot(range(nsteps), Lval, label='Validation loss '+str(round(Lval[-1],4)))
+            plt.plot(range(nsteps), Aval, label='Validation acc '+str(round(Aval[-1],4)))
             plt.legend()
             plt.show()
 
     # this is using implemented SGD
     def fit_(self, X, y, nsteps=1000, bs=100, plot=False):
+        print('here')
         X, y = torch.tensor(X), torch.tensor(y)
         optimizer = SGD(self.parameters(), lr=self.lr, weight_decay=self.lam)
 
@@ -271,9 +300,9 @@ class neural_network(Module):
             Aval += [np.array(outval.argmax(-1) == yval.argmax(-1)).mean()]
 
         if plot:
-            plt.plot(range(nsteps), Ltrain, label='Training loss')
-            plt.plot(range(nsteps), Lval, label='Validation loss')
-            plt.plot(range(nsteps), Aval, label='Validation acc')
+            plt.plot(range(nsteps), Ltrain, label='Training loss ' + str(round(Ltrain[-1], 4)))
+            plt.plot(range(nsteps), Lval, label='Validation loss ' + str(round(Lval[-1], 4)))
+            plt.plot(range(nsteps), Aval, label='Validation acc ' + str(round(Aval[-1], 4)))
             plt.legend()
             plt.show()
 
@@ -503,8 +532,10 @@ def Assignment4():
     ax[1].set_title('Training data')
     plt.show()
 
+    reg = list(np.linspace(1, 500, num=20))
+    reg.append(None)
     params = {'kernel': ['gaussian'], 'kernelparameter': [.1, .5, .9, 1.0, 2.0, 3.0],
-              'regularization': np.linspace(1, 500, num=20)}
+              'regularization': reg}
 
     CV = cv(X_tr, Y_tr, svm_qp, params, loss_function=loss_function, nrepetitions=2)
     #Perfect fit
@@ -523,8 +554,8 @@ def Assignment4():
 
     #Underfit fit
     print('***************Underfit results**********************')
-    model = svm_qp(kernel='linear', C=None)
-    #model = svm_qp(kernel='gaussian', kernelparameter=7, C=None)
+    #model = svm_qp(kernel='linear', C=None)
+    model = svm_qp(kernel='gaussian', kernelparameter=7, C=None)
     model.fit(X_tr, Y_tr)
     Y_pred = model.predict(X_tr)
     loss = float(np.sum(np.sign(Y_tr) != np.sign(Y_pred))) / float(len(Y_tr))
@@ -565,7 +596,15 @@ def Assignment5():
     print('X:{}, Y:{}'.format(np.shape(X), np.shape(Y)))
     print(Y)
 
-    reg = list(np.linspace(1, 500, num=20))
+    #import  pandas as pd
+    #import seaborn as sns
+    #X_ = np.hstack((X, Y[:, np.newaxis]))
+    #data=pd.DataFrame(X_, columns=['SepalLengthCm','SepalWidthCm','PetalLengthCm','PetalWidthCm','class'])
+    #sns.pairplot( data=data, vars=('SepalLengthCm','SepalWidthCm','PetalLengthCm','PetalWidthCm'), hue='class' )
+    #plt.show()
+
+    #test with SVM-----------------------------------------------
+    '''reg = list(np.linspace(1, 500, num=20))
     reg.append(None)
     params = {'kernel': ['polynomial', 'gaussian'], 'kernelparameter': [1., 2., 3.],
               'regularization': reg}
@@ -599,8 +638,6 @@ def Assignment5():
 
         print('********************Results**********************')
         print("Accuracy:", metrics.accuracy_score(y_test, Y_pred))
-        print("Precision:", metrics.precision_score(y_test, Y_pred))
-        print("Recall:", metrics.recall_score(y_test, Y_pred))
 
         print('Possitive:{} VS Negative:{}'.format(positive_class, negative_class))
         cvloss, kernel, kernelparameter, C = CV.cvloss, CV.kernel, CV.kernelparameter, CV.C
@@ -628,11 +665,35 @@ def Assignment5():
         AUC = round((np.abs(np.trapz(CV.tp, CV.fp))), 3)
         plot_roc_curve(CV.fp, CV.tp, 'linear kernel  {} VS {} SVM'.format(positive_class,negative_class), AUC)
 
-
         print('-------------------------------------------------------------------\n\n')
-    print('class 2 and 3 arent linearly separable')
+    print('class 2 and 3 arent linearly separable')'''
+
+    #test with NN --------------------------------------------------------
+    print('Predict with Neral Network')
+    np.random.seed(11)
+    torch.manual_seed(11)
+    from sklearn.model_selection import train_test_split
+    from sklearn import preprocessing
+    X = preprocessing.normalize(X)
+    new_y = [] #convert Y to one hot
+    for i in Y:
+        a = [0, 0, 0]
+        a[int(i) - 1] = 1
+        new_y.append(a)
+    Y = np.array(new_y)
+    X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.1,
+                                                        random_state=50)
+
+    print('X_tr:{}, Y_tr:{}, X_te:{}, Y_te:{}'.format(np.shape(X_train), np.shape(y_train), np.shape(X_test),
+                                                      np.shape(y_test)))
+
+    input_shape = X_train.shape[1]
+    number_of_classes = 3
+    m = neural_network(layers=[input_shape, 100, number_of_classes], lr=.01, p=.04, lam=.2)
+    m.fit(X_train, y_train, nsteps=1000, bs=20, plot=True)
+
 
 if __name__ == '__main__':
     print('Main')
     #Assignment4()
-    #Assignment5()
+    Assignment5()
