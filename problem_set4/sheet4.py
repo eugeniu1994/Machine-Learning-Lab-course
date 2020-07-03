@@ -67,6 +67,8 @@ class neural_network(Module):
         self.weights = ParameterList([Parameter(scale*torch.randn(m, n)) for m, n in zip(layers[:-1], layers[1:])])
         self.biases = ParameterList([Parameter(scale*torch.randn(n)) for n in layers[1:]])
 
+        self.layers = layers
+
         self.p = p
         self.lr = lr if lr is not None else 1e-3
         self.lam = lam if lam is not None else 0.0
@@ -255,7 +257,7 @@ class neural_network(Module):
             self.train = False
             Ltrain += [output.item()]
 
-            print('Cost ', output)
+            #print('Cost ', output)
             #print(self.memory.keys())
 
             derivates = self.backpropagation(Xtrain[I], ytrain[I], bs)
@@ -272,6 +274,8 @@ class neural_network(Module):
             plt.plot(range(nsteps), Aval, label='Validation acc '+str(round(Aval[-1],4)))
             plt.legend()
             plt.show()
+
+        return Ltrain, Lval, Aval
 
     # this is using implemented SGD
     def fit_(self, X, y, nsteps=1000, bs=100, plot=False):
@@ -305,6 +309,7 @@ class neural_network(Module):
             plt.plot(range(nsteps), Aval, label='Validation acc ' + str(round(Aval[-1], 4)))
             plt.legend()
             plt.show()
+        return Ltrain, Lval, Aval
 
 def buildKernel(X, X_train=None, kernel='linear', kernelparameter=0):
     if len(np.shape(X))==1:
@@ -596,15 +601,15 @@ def Assignment5():
     print('X:{}, Y:{}'.format(np.shape(X), np.shape(Y)))
     print(Y)
 
-    #import  pandas as pd
-    #import seaborn as sns
-    #X_ = np.hstack((X, Y[:, np.newaxis]))
-    #data=pd.DataFrame(X_, columns=['SepalLengthCm','SepalWidthCm','PetalLengthCm','PetalWidthCm','class'])
-    #sns.pairplot( data=data, vars=('SepalLengthCm','SepalWidthCm','PetalLengthCm','PetalWidthCm'), hue='class' )
-    #plt.show()
+    import  pandas as pd
+    import seaborn as sns
+    X_ = np.hstack((X, Y[:, np.newaxis]))
+    data=pd.DataFrame(X_, columns=['SepalLengthCm','SepalWidthCm','PetalLengthCm','PetalWidthCm','class'])
+    sns.pairplot( data=data, vars=('SepalLengthCm','SepalWidthCm','PetalLengthCm','PetalWidthCm'), hue='class' )
+    plt.show()
 
     #test with SVM-----------------------------------------------
-    '''reg = list(np.linspace(1, 500, num=20))
+    reg = list(np.linspace(1, 500, num=20))
     reg.append(None)
     params = {'kernel': ['polynomial', 'gaussian'], 'kernelparameter': [1., 2., 3.],
               'regularization': reg}
@@ -666,32 +671,94 @@ def Assignment5():
         plot_roc_curve(CV.fp, CV.tp, 'linear kernel  {} VS {} SVM'.format(positive_class,negative_class), AUC)
 
         print('-------------------------------------------------------------------\n\n')
-    print('class 2 and 3 arent linearly separable')'''
+    print('class 2 and 3 arent linearly separable')
 
     #test with NN --------------------------------------------------------
     print('Predict with Neral Network')
-    np.random.seed(11)
-    torch.manual_seed(11)
+    process_Iris_Dataset_with_Neural_Networks()
+
+def process_Iris_Dataset_with_Neural_Networks():
+    dataset = np.load('data/iris.npz')
+    print(dataset.files)
+    X = dataset['X'].T
+    Y = dataset['Y'].T
+    print('X:{}, Y:{}'.format(np.shape(X), np.shape(Y)))
     from sklearn.model_selection import train_test_split
-    from sklearn import preprocessing
-    X = preprocessing.normalize(X)
-    new_y = [] #convert Y to one hot
+    from sklearn.preprocessing import StandardScaler
+
+    new_y = []
     for i in Y:
         a = [0, 0, 0]
         a[int(i) - 1] = 1
         new_y.append(a)
     Y = np.array(new_y)
-    X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.1,
-                                                        random_state=50)
+    #scale data
+    X_scaled = StandardScaler().fit_transform(X)
 
-    print('X_tr:{}, Y_tr:{}, X_te:{}, Y_te:{}'.format(np.shape(X_train), np.shape(y_train), np.shape(X_test),
-                                                      np.shape(y_test)))
+    # Split the data set into training and testing
+    X_train, X_test, Y_train, Y_test = train_test_split(
+        X_scaled, Y, test_size=0.2, random_state=2)
+    np.random.seed(11)
+    torch.manual_seed(11)
 
-    input_shape = X_train.shape[1]
-    number_of_classes = 3
-    m = neural_network(layers=[input_shape, 100, number_of_classes], lr=.01, p=.04, lam=.2)
-    m.fit(X_train, y_train, nsteps=1000, bs=20, plot=True)
+    n_features = X.shape[1]
+    n_classes = Y.shape[1]
+    print('n_features:{}, n_classes:{}'.format(n_features,n_classes))
+    print('X_train ',np.shape(X_train))
+    print('Y_train ', np.shape(Y_train))
+    learning_rate = 0.1
+    def create_model(input_dim, output_dim, nodes, layer=1, name='model'):
+        layers = [input_dim]
+        for i in range(layer):
+            layers.append(nodes)
+        layers.append(output_dim)
+        model = neural_network(layers=layers, lr=learning_rate, p=.05, lam=.05, use_ReLU=True)
+        model.name = name
+        return model
 
+    models = [create_model(n_features, n_classes, 16, i, 'model_{}'.format(i))
+              for i in range(1, 6)]
+
+    for created_model in models:
+        print('Model :{}, {} layers'.format(created_model.name, len(created_model.layers)))
+
+    history_dict = {}
+    print('Training models')
+    for model in models:
+        Ltrain, Lval, Aval = model.fit(X_train, Y_train, nsteps=50, bs=10, plot=False)
+        history_dict[model.name] = [Ltrain, Lval, Aval, model]
+
+    fig, (ax1, ax2) = plt.subplots(2, figsize=(10, 8))
+    for model_name in history_dict:
+        val_acc = history_dict[model_name][2]
+        val_loss = history_dict[model_name][1]
+        ax1.plot(val_acc, label=model_name)
+        ax2.plot(val_loss, label=model_name)
+        print('Model :{},  Val loss :{} ,  Val Accuracy :{}'.format(model_name, val_loss[-1],val_acc[-1]))
+
+    ax1.set_ylabel('val accuracy')
+    ax2.set_ylabel('val loss')
+    ax2.set_xlabel('epochs')
+    ax1.legend()
+    ax2.legend()
+    plt.show()
+
+    from sklearn.metrics import roc_curve, auc
+
+    plt.figure(figsize=(10, 8))
+    plt.plot([0, 1], [0, 1], 'k--')
+    for model_name in history_dict:
+        model = history_dict[model_name][3]
+
+        Y_pred = model.predict(X_test)
+        fpr, tpr, threshold = roc_curve(Y_test.ravel(), Y_pred.ravel())
+
+        plt.plot(fpr, tpr, label='{}, AUC = {:.3f}'.format(model_name, auc(fpr, tpr)))
+    plt.xlabel('False positive rate')
+    plt.ylabel('True positive rate')
+    plt.title('ROC curve')
+    plt.legend()
+    plt.show()
 
 if __name__ == '__main__':
     print('Main')
