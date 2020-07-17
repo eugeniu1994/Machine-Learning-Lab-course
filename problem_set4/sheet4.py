@@ -10,10 +10,9 @@ import torch
 from scipy.spatial.distance import cdist
 import itertools as it
 import time
-from itertools import combinations
+from itertools import combinations, permutations
 
-
-from torch.optim import SGD #just to compare with my implementation
+from torch.optim import SGD #just to compare with our own implementation
 from torch.nn import Module, Parameter, ParameterList
 from torch.autograd import Variable
 
@@ -56,7 +55,7 @@ def plot_boundary_2d(X, y, model, title='Boundary'):
 
     plot_contours(model, x_, y_, alpha=0.9)
     plt.scatter(X[:, 0], X[:, 1], c=y, s=20, edgecolors='k')
-    if isinstance(model, svm_sklearn) or isinstance(model, svm_qp):
+    if isinstance(model, svm_sklearn) or isinstance(model, svm_qp) or isinstance(model, svm_qp_Alberto):
         plt.scatter(model.X_sv[:, 0], model.X_sv[:, 1], c='r', s=40, marker = 'x', edgecolors='k')
     plt.title(title)
     plt.show()
@@ -133,7 +132,7 @@ class neural_network(Module):
             L2_regularization = 0
             for l in range(self.L):
                 w = self.weights[l].detach().clone().numpy()
-                L2_regularization +=np.sum(np.square(w))
+                L2_regularization += np.sum(np.square(w))
 
             L2_regularization = (self.lam / (2 * n))*L2_regularization
             cost = cross_entropy + L2_regularization
@@ -167,14 +166,14 @@ class neural_network(Module):
 
     def softmax_derivative(self, s):
         s = s[0]
-        jacobian_m = torch.diag(s)
-        for i in range(len(jacobian_m)):
-            for j in range(len(jacobian_m)):
+        Jacobian_matrix = torch.diag(s)
+        for i in range(len(Jacobian_matrix)):
+            for j in range(len(Jacobian_matrix)):
                 if i == j:
-                    jacobian_m[i][j] = s[i] * (1 - s[i])
+                    Jacobian_matrix[i][j] = s[i] * (1 - s[i])
                 else:
-                    jacobian_m[i][j] = -s[i] * s[j]
-        return jacobian_m
+                    Jacobian_matrix[i][j] = -s[i] * s[j]
+        return Jacobian_matrix
 
     def backpropagation(self, X, Y, bs):
         derivates = {}
@@ -262,7 +261,7 @@ class neural_network(Module):
 
             derivates = self.backpropagation(Xtrain[I], ytrain[I], bs)
             #print(derivates.keys())
-            self.SGD_updates(derivates,bs,True) #normalize
+            self.SGD_updates(derivates,bs,True)
 
             outval = self.forward(Xval)
             Lval += [self.loss(outval, yval).item()]
@@ -367,7 +366,7 @@ class svm_qp():
                             cvxmatrix(A, tc='d'),
                             cvxmatrix(b, tc='d'))['x']).flatten()
 
-        suport_vectors = alpha > 1e-4 #keep only non zero alphas
+        suport_vectors = alpha > 1e-4 #keep only non zero alpha
         idx = np.arange(len(alpha))[suport_vectors]
         self.alpha_sv = alpha[suport_vectors]
         self.X_sv = X[suport_vectors]
@@ -381,16 +380,17 @@ class svm_qp():
         if len(self.alpha_sv) > 0:
             self.b = self.b / len(self.alpha_sv)
 
-        self.w = np.sum((alpha @ Y) * X, axis=0)
 
-    def predict(self, X):
-        #prediction = np.dot(X, self.w) + self.b
+    def predict(self, X, without_sign=False):
         ypred = np.zeros(len(X))
         for i in range(len(X)):
             for vector, vector_y, vector_x in zip(self.alpha_sv, self.Y_sv, self.X_sv):
                 k = buildKernel(X=X[i], X_train=vector_x, kernel=self.kernel, kernelparameter=self.kernelparameter)
                 ypred[i] += vector * vector_y * k
         prediction = ypred + self.b
+        if without_sign:
+            return prediction
+
         return np.sign(prediction)
 
 def loss_function(Y_pred,Y_te):
@@ -463,10 +463,10 @@ def cv(X, y, method, params, loss_function=loss_function, nfolds=10, nrepetition
 
                 # Train Model on the fold training data and test it
                 method_fold.fit(X_train, Y_train)
-                y_pred = method_fold.predict(X_test)
+                y_pred = method_fold.predict(X_test) if roc_f==False else method_fold.predict(X_test,without_sign=True)
 
                 # Sum Error
-                e_cv_error += loss_function(y_pred, Y_test)
+                e_cv_error += loss_function(Y_test, y_pred)
 
             e_r_error += (e_cv_error/nfolds)
             last_t = time.time() - current_time
@@ -498,15 +498,15 @@ def cv(X, y, method, params, loss_function=loss_function, nfolds=10, nrepetition
 
     return best_method
 
-def roc_fun(y_true, y_hat, points = 500, threshold = 0.0):
+def roc_fun(y_true, y_hat, points = 2500, threshold = 0.0):
     y_hat = y_hat[:, np.newaxis]
+
     Negative = np.array(y_true.flatten() == -1).sum() #negative class
     Positive = len(y_true) - Negative                 #positive class
     assert Positive>0 and Negative>0, 'Negative or Positive is zero, zero division exception (No positive or negative classes, Inbalanced data)'
 
-    B = np.linspace(-3, 3, points)[np.newaxis, :]
+    B = np.linspace(-10, 10, points)[np.newaxis, :]
     PRED = (y_hat - B) > threshold
-
     TPR = PRED[y_true.flatten() == 1, :].sum(axis=0) / Positive
     FPR = PRED[y_true.flatten() == -1, :].sum(axis=0) / Negative
 
@@ -589,7 +589,7 @@ def Assignment4():
     #-ROC-------------------------------------
     best_params = {'kernel': [CV.kernel], 'kernelparameter': [CV.kernelparameter],
                    'regularization': [CV.C]}
-    CV = cv(X_tr, Y_tr, svm_qp, best_params, loss_function=roc_fun, nrepetitions=2, roc_f = True)
+    CV = cv(X_tr, Y_tr, svm_qp, best_params, loss_function=roc_fun, nfolds = 10, nrepetitions=2, roc_f = True)
     AUC = round((np.abs(np.trapz(CV.tp, CV.fp))), 3)
     plot_roc_curve(CV.fp, CV.tp, '', AUC)
 
@@ -672,16 +672,20 @@ def Assignment5():
 
         print('-------------------------------------------------------------------\n\n')
     print('class 2 and 3 arent linearly separable')
+    #from sklearn.preprocessing import StandardScaler
+    #X_scaled = StandardScaler().fit_transform(X)
+    #split_classes_and_plot_SVM_results(X_scaled, Y)
 
     #test with NN --------------------------------------------------------
-    print('Predict with Neral Network')
-    process_Iris_Dataset_with_Neural_Networks()
+    #print('Predict with Neral Network')
+    #process_Iris_Dataset_with_Neural_Networks()
 
 def process_Iris_Dataset_with_Neural_Networks():
     dataset = np.load('data/iris.npz')
     print(dataset.files)
     X = dataset['X'].T
     Y = dataset['Y'].T
+    Y_copy = Y.copy()
     print('X:{}, Y:{}'.format(np.shape(X), np.shape(Y)))
     from sklearn.model_selection import train_test_split
     from sklearn.preprocessing import StandardScaler
@@ -718,7 +722,6 @@ def process_Iris_Dataset_with_Neural_Networks():
 
     models = [create_model(n_features, n_classes, 16, i, 'model_{}'.format(i))
               for i in range(1, 6)]
-
     for created_model in models:
         print('Model :{}, {} layers'.format(created_model.name, len(created_model.layers)))
 
@@ -760,7 +763,90 @@ def process_Iris_Dataset_with_Neural_Networks():
     plt.legend()
     plt.show()
 
+    Y_pred = models[-1].predict(X_scaled)
+    split_classes_and_plot_NN_results(X_scaled, Y_pred)
+
+def split_classes_and_plot_SVM_results(X,Y):
+    print('X ', np.shape(X))
+    print('Y ', np.shape(Y))
+    dts = list(permutations([0, 1, 2, 3], 2))
+    print('dts ',dts)
+    columns = ['SepalLengthCm', 'SepalWidthCm', 'PetalLengthCm', 'PetalWidthCm']
+    _, axs = plt.subplots(4, 4,figsize=(15,15))
+
+    n_classes = 3
+    plot_colors = "rbg"
+    plot_colors_arr = ["r", "b", "g"]
+    for j in range(len(dts)):
+        cls = dts[j]
+
+        for ran in range(3):
+            axs[cls[0], cls[0]].scatter([0.], [(ran - 1) * .1], c=plot_colors_arr[ran], s=90)
+            axs[cls[0], cls[0]].annotate('class {}'.format(ran + 1), (0.005, (ran - 1) * .1))
+
+        axs[cls[0], cls[0]].set_xticks([])
+        axs[cls[0], cls[0]].set_yticks([])
+
+        pair = cls
+        X_pair = X[:, pair]
+
+        clf = svm_sklearn(kernel='gaussian', C=1.)
+        clf.fit(X_pair, Y)
+
+        def make_meshgrid(x, y, h=.05):
+            min_x, max_x = x.min() - 1, x.max() + 1
+            min_y, max_y = y.min() - 1, y.max() + 1
+            x_, y_ = np.meshgrid(np.arange(min_x, max_x, h), np.arange(min_y, max_y, h))
+            return x_, y_
+        x_, y_ = make_meshgrid(X[:, 0], X[:, 1])
+        def plot_contours(clf, x_, y_, **params):
+            Z = clf.predict(np.c_[x_.ravel(), y_.ravel()])
+            if len(np.shape(Z)) != 1:
+                Z = np.squeeze(Z[:, 0])
+
+            Z = Z.reshape(np.shape(x_))
+            axs[cls[1], cls[0]].contourf(x_, y_, Z, **params)
+
+        plot_contours(clf, x_, y_, alpha=0.9)
+        for i, color in zip(range(n_classes), plot_colors):
+            idx = np.where(Y == (i+1))
+            axs[cls[1], cls[0]].scatter(X_pair[idx, 0], X_pair[idx, 1], c=color,cmap=plt.cm.RdYlBu, edgecolor='black', s=40)
+
+        axs[cls[1], cls[0]].scatter(clf.X_sv[:, 0], clf.X_sv[:, 1], c='r', s=40, marker='x', edgecolors='k')
+
+    for ax, col in zip(axs[0], columns):
+        ax.set_title(col)
+    for ax, row in zip(axs[:, 0], columns):
+        ax.set_ylabel(row, rotation='vertical', size='large')
+
+    plt.show()
+
+def split_classes_and_plot_NN_results(X,Y_pred):
+    print('X ', np.shape(X))
+    print('Y ', np.shape(Y_pred))
+    dts = list(permutations([0, 1, 2, 3], 2))
+    print('dts ',dts)
+    columns = ['SepalLengthCm', 'SepalWidthCm', 'PetalLengthCm', 'PetalWidthCm']
+    fig, axs = plt.subplots(4, 4,figsize=(15,15))
+    plot_colors = ["r","b","g"]
+    for j in range(len(dts)):
+        cls = dts[j]
+        axs[cls[1], cls[0]].scatter(X[:,cls[0]],X[:,cls[1]], c = Y_pred, s=60)
+        for ran in range(3):
+            axs[cls[0], cls[0]].scatter([0.], [(ran-1)*.1], c=plot_colors[ran], s = 90)
+            axs[cls[0], cls[0]].annotate('class {}'.format(ran+1), (0.005, (ran-1)*.1))
+
+        axs[cls[0], cls[0]].set_xticks([])
+        axs[cls[0], cls[0]].set_yticks([])
+
+    for ax, col in zip(axs[0], columns):
+        ax.set_title(col)
+    for ax, row in zip(axs[:, 0], columns):
+        ax.set_ylabel(row, rotation='vertical', size='large')
+
+    plt.show()
+
 if __name__ == '__main__':
     print('Main')
     #Assignment4()
-    Assignment5()
+    #Assignment5()
