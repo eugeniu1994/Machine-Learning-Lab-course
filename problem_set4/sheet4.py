@@ -846,7 +846,212 @@ def split_classes_and_plot_NN_results(X,Y_pred):
 
     plt.show()
 
+def Assignment6():
+    # Which models to perform cv or train
+    neural_net = True  # To train neural networks
+    svm = False          # To train SVM for each digit binary class problem
+    apply_svm = False    # To load already trained models and predict by comparing each models output
+
+    # Load training and test data
+    train_data = tr.load(r'/Users/albertorodriguez/Desktop/Current Courses/ML_Lab/4 Topic/problem_set4/stubs/MNIST/processed/training.pt')
+    test_data = tr.load(r'/Users/albertorodriguez/Desktop/Current Courses/ML_Lab/4 Topic/problem_set4/stubs/MNIST/processed/test.pt')
+
+    X_train = train_data[0]
+    y_train = train_data[1]
+
+    X_te = test_data[0]
+    y_te = test_data[1]
+
+    n_tr = X_train.shape[0]
+    n_te = X_te.shape[0]
+
+    # Build ytrain ones matrix == One-hot-encode
+
+    y_train_ones = tr.zeros((X_train.shape[0], 10))
+    y_train_ones[tr.arange(X_train.shape[0]), y_train] = 1
+
+    y_test_ones = tr.zeros((X_te.shape[0], 10))
+    y_test_ones[tr.arange(X_te.shape[0]), y_te] = 1
+    # Reshape Images
+    X_train = X_train.reshape((n_tr, 28*28))
+    X_te = X_te.reshape((n_te, 28*28))
+
+    # Avoid 0 as input by mapping pixel values to range 0.01-1 (Re-scaling data)
+    X_train = X_train * 0.99/255 + 0.01
+    X_te = X_te * 0.99/255 + 0.01
+
+
+    print('X train shape: {}, X_test shape: {}'.format(X_train.shape, X_te.shape))
+    print('Y_train shape: {}'.format(y_train_ones.shape))
+    print('Classes: {}'.format(tr.unique(y_train)))
+
+    # NEURAL NETWORK
+
+    if neural_net:
+        #best_model = imp.neural_network(layers=[28 * 28, 100, 100, 10], scale=.1, p=0.1, lr=0.1, lam=1e-4)
+        #best_model.fit(X_train, y_train_ones, nsteps=3000, bs=168, plot=True)
+
+        # Set epochs number and batchsizenumber
+
+
+        # params = {'layers': [[784, 32, 10]], 'scale': [.1], 'p': [0.1, 0.5, 0.8],
+        #          'lr': [0.01, 0.1, 0.5], 'lam': np.logspace(-3, 2, 5)}
+
+        params = {'layers': [[784, 32, 10]], 'scale': [.1], 'p': [0, 0.1, 0.5],
+                  'lr': [0.01, 0.1, 0.5], 'lam': [0, 0.1, 1]}
+        # CV
+        best_model = imp.cv(X=X_train, y=y_train_ones, method=imp.neural_network, params=params,
+             loss_function=imp.zero_one_loss_multiple, nfolds=5, nrepetitions=1, roc_f=False, verbose=True)
+
+        # Compute error on the test set
+        y_te_pred = tr.as_tensor(best_model.predict(X_te))
+        loss_acc = imp.zero_one_loss_multiple(y_pred=y_te_pred, y_true=y_test_ones)
+        loss_test = imp.cross_entropy_loss(ypred=y_te_pred, ytrue=y_test_ones)
+
+        print('Best Model Test loss: {}'.format(loss_test))
+        print('Best Model Test acuracy: {}'.format(1 - loss_acc))
+
+        # Plot weight vectors
+        fig, axes = plt.subplots(10, 10)
+        # weigths global min / max -> all images on the same scale
+        vmin, vmax = float(best_model.weights[0].min()), float(best_model.weights[0].max())
+
+        weights_first_layer = best_model.weights[0].data.numpy()
+
+        for coef, ax in zip(weights_first_layer.T, axes.ravel()):
+            ax.matshow(coef.reshape(28, 28), cmap=plt.cm.gray, vmin=.5 * vmin,
+                       vmax=.5 * vmax)
+            ax.set_xticks(())
+            ax.set_yticks(())
+
+        plt.show()
+
+    if svm:
+        # One vs rest classification
+        cur_digits = [0, 1, 2, 3 , 4, 5, 6, 7, 8, 9]
+        #cur_digits = [0]
+        y_train_np = y_train.data.numpy()
+        X_train_np = X_train.data.numpy()
+        X_test_np = X_te.data.numpy()
+        y_test_np = y_te.data.numpy()
+
+        X_train_np = X_train_np[:, :]
+        y_train_np = y_train_np[:]
+
+        for index, cur_digit in enumerate(cur_digits):
+            y_train_cur = y_train_np.copy()
+            y_test_cur = y_test_np.copy()
+
+            y_train_cur[y_train_np == cur_digit] = 1
+
+            y_train_cur[y_train_np != cur_digit] = -1
+
+            y_test_cur[y_te == cur_digit] = 1
+            y_test_cur[y_te != cur_digit] = -1
+
+            #svm_model = imp.svm_qp(kernel='poly', kernelparameter=3, C= 0.001)
+            #params = {'kernel': ['poly'], 'kernelparameter':[2, 3, 4], 'C': np.log(-2,2,5)}
+            #best_model = imp.cv(X=X_train, y=y_train_ones, method=imp.svm_sklearn, params=params,
+            #                    loss_function=imp.zero_one_loss_multiple, nfolds=5, nrepetitions=1, roc_f=False,
+            #                    verbose=True)
+            
+            svm_model = imp.svm_sklearn(kernel='poly', kernelparameter=3, C=0.001)
+            svm_model.fit(X_train_np, y_train_cur)
+            #print(svm_model.X_sv.shape)
+            #print('fit ready')
+            y_pred_tr = svm_model.predict(X_train_np)
+            y_pred_test = svm_model.predict(X_test_np)
+
+            print(len(np.argwhere(np.sign(y_pred_test) == -1)))
+            # Compute accuracy on train and test data
+            accuracy_train = 1 - imp.zero_one_loss(y_pred=np.sign(y_pred_tr), y_true=y_train_cur)
+
+            accuracy_test = 1 - imp.zero_one_loss(y_pred=np.sign(y_pred_test), y_true=y_test_cur)
+
+            # Compute true pos rate
+            pos_all = len(np.argwhere(y_test_cur == 1))
+            true_pos = len(np.argwhere(y_test_cur[y_test_cur == 1]*np.sign(y_pred_test[y_test_cur == 1]) == 1))
+            true_pos_rate = true_pos/pos_all
+
+            print('Cur Digit: {}'.format(cur_digit))
+            print('True Pos Rate in percentage: {}'.format(true_pos_rate))
+            print('One vs Rest SVM Classification for digit: {}'.format(cur_digit))
+            print('Train Accuracy: {}, Test Accuracy: {}'.format(accuracy_train, accuracy_test))
+
+            # SAVE MODEL
+            filename = 'finalized_model_svm_digit_'+str(cur_digit)+'.sav'
+            pickle.dump(svm_model, open(filename, 'wb'))
+
+
+            # plot 5 random support vectors for each class == 10 figures per digit
+            X_sv = svm_model.X_sv.T
+            y_sv = svm_model.y_sv
+            # Randomly choose 5 support vectors for each class
+            X_sv_pos = X_sv[:, y_sv == 1]
+            X_sv_neg = X_sv[:, y_sv == -1]
+
+            indexes_pos = np.random.choice(np.arange(X_sv_pos.shape[1]), 5, replace=False)
+            indexes_neg = np.random.choice(np.arange(X_sv_neg.shape[1]), 5, replace=False)
+
+            X_random_pos = X_sv_pos[:, indexes_pos]  # dx5 array
+            X_random_neg = X_sv_neg[:, indexes_neg]  # dx5 array
+
+            if X_sv.shape[1] >= 2:
+                fig, axes = plt.subplots(1, 5)
+                for coef, ax in zip(X_random_pos.T, axes.ravel()):
+                    ax.matshow(coef.reshape(28, 28), cmap=plt.cm.gray)
+                    ax.set_xticks(())
+                    ax.set_yticks(())
+
+            print('-------')
+            fig.savefig(fname='digit_' + str(cur_digit)+'_pos_class')
+
+            if X_sv.shape[1] >= 2:
+                fig, axes = plt.subplots(1, 5)
+                for coef, ax in zip(X_random_neg.T, axes.ravel()):
+                    ax.matshow(coef.reshape(28, 28), cmap=plt.cm.gray)
+                    ax.set_xticks(())
+                    ax.set_yticks(())
+
+            print('-------')
+            fig.savefig(fname='digit_' + str(cur_digit)+'_neg_class')
+
+    if apply_svm:
+        X_test_np = X_te.data.numpy()
+        y_test_np = y_te.data.numpy()
+
+        y_train_np = y_train.data.numpy()
+        X_train_np = X_train.data.numpy()
+
+        models = {}
+        # load models
+        for digit_model in range(10):
+
+            with open(r'/Users/albertorodriguez/Desktop/Current Courses/ML_Lab/4 Topic/problem_set4/stubs/finalized_model_svm_digit_'+str(digit_model)+'.sav', 'rb') as f:
+                models['model_'+str(digit_model)] = pickle.load(f)
+
+        # Init results matrix Y_pred
+        Y_pred_test = np.zeros((X_test_np.shape[0], 10))
+        Y_pred_train = np.zeros((X_train_np.shape[0], 10))
+
+        for digit, model_cur in enumerate(models):
+            print(model_cur)
+            m = models[model_cur]
+            Y_pred_test[:, digit] = m.predict(X_test_np)
+            Y_pred_train[:, digit] = m.predict(X_train_np)
+
+        # Convert to pred numbers
+        y_pred_test_numbers = np.argmax(Y_pred_test, axis=1)
+        y_pred_train_numbers = np.argmax(Y_pred_train, axis=1)
+
+        test_acc = np.argwhere(y_pred_test_numbers - y_test_np == 0)/X_test_np.shape[0] * 100
+        train_acc = np.argwhere(y_pred_train_numbers - y_train_np == 0)/X_train_np.shape[0] * 100
+
+        print('Accuracy on the Training data: {}'.format(train_acc))
+        print('Accuracy on the Test data: {}'.format(test_acc))
+        
 if __name__ == '__main__':
     print('Main')
     #Assignment4()
     #Assignment5()
+    #Assignment6()
