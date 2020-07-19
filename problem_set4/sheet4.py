@@ -11,12 +11,12 @@ from scipy.spatial.distance import cdist
 import itertools as it
 import time
 from itertools import combinations, permutations
+import pickle
 
 from torch.optim import SGD #just to compare with our own implementation
 from torch.nn import Module, Parameter, ParameterList
 from torch.autograd import Variable
 
-# This is already implemented for your convenience
 class svm_sklearn():
     """ SVM via scikit-learn """
     def __init__(self, kernel='linear', kernelparameter=1., C=1.):
@@ -55,7 +55,7 @@ def plot_boundary_2d(X, y, model, title='Boundary'):
 
     plot_contours(model, x_, y_, alpha=0.9)
     plt.scatter(X[:, 0], X[:, 1], c=y, s=20, edgecolors='k')
-    if isinstance(model, svm_sklearn) or isinstance(model, svm_qp) or isinstance(model, svm_qp_Alberto):
+    if isinstance(model, svm_sklearn) or isinstance(model, svm_qp):
         plt.scatter(model.X_sv[:, 0], model.X_sv[:, 1], c='r', s=40, marker = 'x', edgecolors='k')
     plt.title(title)
     plt.show()
@@ -185,13 +185,10 @@ class neural_network(Module):
         #dA = -np.divide(Y, A) + np.divide(1 - Y, 1 - A) #normal cross entropy derivative
         dA = A - Y                                       #stable cross entropy derivative
 
-        #here add softmax instead of relu_derivative---to do
         if self.use_ReLU:
             dZ = (dA * self.relu_derivative(self.memory["Z_" + str(self.L)]).detach().clone().numpy()).T  #with relu derivative
         else:
             dZ = (dA * self.SigmoidDerivative(self.memory["Z_" + str(self.L)]).detach().clone().numpy()).T
-
-        #dZ = np.dot(self.softmax_derivative(self.memory["Z_" + str(self.L)].T).detach().clone().numpy(), dA).T #with softmax derivative
 
         dW = dZ.dot(self.memory["A_" + str(self.L - 1)].detach().clone().numpy())
         db = np.sum(dZ, axis=1, keepdims=True)
@@ -239,6 +236,7 @@ class neural_network(Module):
             self.weights[l - 1] = Parameter(torch.from_numpy(updated_w.astype(np.float32)).requires_grad_())
             self.biases[l - 1] = Parameter(torch.from_numpy(updated_b.astype(np.float32)).requires_grad_())
 
+    #backpropagation & weights update from scratch
     def fit(self, X, y, nsteps=1000, bs=100, plot=False):
         #np.random.seed(1)
         torch.manual_seed(1)
@@ -255,7 +253,6 @@ class neural_network(Module):
             output = self.loss(self.forward(Xtrain[I]), ytrain[I])
             self.train = False
             Ltrain += [output.item()]
-
             #print('Cost ', output)
             #print(self.memory.keys())
 
@@ -380,7 +377,6 @@ class svm_qp():
         if len(self.alpha_sv) > 0:
             self.b = self.b / len(self.alpha_sv)
 
-
     def predict(self, X, without_sign=False):
         ypred = np.zeros(len(X))
         for i in range(len(X)):
@@ -388,6 +384,7 @@ class svm_qp():
                 k = buildKernel(X=X[i], X_train=vector_x, kernel=self.kernel, kernelparameter=self.kernelparameter)
                 ypred[i] += vector * vector_y * k
         prediction = ypred + self.b
+
         if without_sign:
             return prediction
 
@@ -600,7 +597,6 @@ def Assignment5():
     Y = dataset['Y'].T
     print('X:{}, Y:{}'.format(np.shape(X), np.shape(Y)))
     print(Y)
-
     import  pandas as pd
     import seaborn as sns
     X_ = np.hstack((X, Y[:, np.newaxis]))
@@ -651,6 +647,7 @@ def Assignment5():
 
         myX = X_data[:,:2].copy()
         CV.fit(myX, Y_data)
+
         # -ROC-------------------------------------
         best_params = {'kernel': [CV.kernel], 'kernelparameter': [CV.kernelparameter],
                        'regularization': [CV.C]}
@@ -672,13 +669,13 @@ def Assignment5():
 
         print('-------------------------------------------------------------------\n\n')
     print('class 2 and 3 arent linearly separable')
-    #from sklearn.preprocessing import StandardScaler
-    #X_scaled = StandardScaler().fit_transform(X)
-    #split_classes_and_plot_SVM_results(X_scaled, Y)
+    from sklearn.preprocessing import StandardScaler
+    X_scaled = StandardScaler().fit_transform(X)
+    split_classes_and_plot_SVM_results(X_scaled, Y)
 
     #test with NN --------------------------------------------------------
-    #print('Predict with Neral Network')
-    #process_Iris_Dataset_with_Neural_Networks()
+    print('Predict with Neral Network')
+    process_Iris_Dataset_with_Neural_Networks()
 
 def process_Iris_Dataset_with_Neural_Networks():
     dataset = np.load('data/iris.npz')
@@ -747,7 +744,6 @@ def process_Iris_Dataset_with_Neural_Networks():
     plt.show()
 
     from sklearn.metrics import roc_curve, auc
-
     plt.figure(figsize=(10, 8))
     plt.plot([0, 1], [0, 1], 'k--')
     for model_name in history_dict:
@@ -763,7 +759,7 @@ def process_Iris_Dataset_with_Neural_Networks():
     plt.legend()
     plt.show()
 
-    Y_pred = models[-1].predict(X_scaled)
+    Y_pred = models[0].predict(X_scaled)
     split_classes_and_plot_NN_results(X_scaled, Y_pred)
 
 def split_classes_and_plot_SVM_results(X,Y):
@@ -846,7 +842,245 @@ def split_classes_and_plot_NN_results(X,Y_pred):
 
     plt.show()
 
+def zero_one_loss_multiple(y_pred, y_true):
+    # Computes zero one loss for a multi classification task : add 0 for correct classification
+    #    and 1 for an incorrect classification.
+    #    Input:    y_pred      - torch array nxK with n predictions for k-possible classifications
+    #              y_true      - torch array nxK with correct classifcations as 1
+    #   Output:    loss        - float, zero one loss
+    
+    n = y_true.shape[0]
+    k = y_true.shape[1]
+    Z = torch.zeros((n, k))
+    Z[torch.arange(n), torch.argmax(y_pred, 1)] = 1
+
+    loss = (n - float(torch.sum(Z*y_true)))/n
+
+    return loss
+
+def zero_one_loss(y_pred, y_true):
+    #Compute zero one loss function value for binary classification
+    #Definition:  apply_pca(X, m)
+    #Input:       y_pred                  - Nx1 numpy array, predicted values
+    #             y_true                  - Nx1 numpy arrays , true classification values
+    #Output:      loss                    - float, zero one loss function
+    
+    y_pred_sign = np.sign(y_pred)
+    y_pred_sign[y_pred_sign == 0] = -1
+    loss = (1/len(y_pred))*len(np.argwhere((y_true * y_pred_sign < 0)))
+    return loss
+
+def cross_entropy_loss(ypred, ytrue):
+    cross_entropy = -(ytrue * ypred.log() + (1 - ytrue) * (1 - ypred).log()).mean()
+    return cross_entropy
+
+def Assignment6():
+    # Which models to perform cv or train
+    neural_net = True  # To train neural networks
+    svm = False  # To train SVM for each digit binary class problem
+    apply_svm = False  # To load already trained models and predict by comparing each models output
+
+    # Load training and test data
+    train_data = torch.load(
+        r'/Users/albertorodriguez/Desktop/Current Courses/ML_Lab/4 Topic/problem_set4/stubs/MNIST/processed/training.pt')
+    test_data = torch.load(
+        r'/Users/albertorodriguez/Desktop/Current Courses/ML_Lab/4 Topic/problem_set4/stubs/MNIST/processed/test.pt')
+
+    X_train = train_data[0]
+    y_train = train_data[1]
+
+    X_te = test_data[0]
+    y_te = test_data[1]
+
+    n_tr = X_train.shape[0]
+    n_te = X_te.shape[0]
+
+    # Build ytrain ones matrix == One-hot-encode
+
+    y_train_ones = torch.zeros((X_train.shape[0], 10))
+    y_train_ones[torch.arange(X_train.shape[0]), y_train] = 1
+
+    y_test_ones = torch.zeros((X_te.shape[0], 10))
+    y_test_ones[torch.arange(X_te.shape[0]), y_te] = 1
+    # Reshape Images
+    X_train = X_train.reshape((n_tr, 28 * 28))
+    X_te = X_te.reshape((n_te, 28 * 28))
+
+    # Avoid 0 as input by mapping pixel values to range 0.01-1 (Re-scaling data)
+    X_train = X_train * 0.99 / 255 + 0.01
+    X_te = X_te * 0.99 / 255 + 0.01
+
+    print('X train shape: {}, X_test shape: {}'.format(X_train.shape, X_te.shape))
+    print('Y_train shape: {}'.format(y_train_ones.shape))
+    print('Classes: {}'.format(torch.unique(y_train)))
+
+    # NEURAL NETWORK
+
+    if neural_net:
+        # best_model = imp.neural_network(layers=[28 * 28, 100, 100, 10], scale=.1, p=0.1, lr=0.1, lam=1e-4)
+        # best_model.fit(X_train, y_train_ones, nsteps=3000, bs=168, plot=True)
+
+        # Set epochs number and batchsizenumber
+
+        # params = {'layers': [[784, 32, 10]], 'scale': [.1], 'p': [0.1, 0.5, 0.8],
+        #          'lr': [0.01, 0.1, 0.5], 'lam': np.logspace(-3, 2, 5)}
+
+        params = {'layers': [[784, 32, 10]], 'scale': [.1], 'p': [0, 0.1, 0.5],
+                  'lr': [0.01, 0.1, 0.5], 'lam': [0, 0.1, 1]}
+        # CV
+        best_model = cv(X=X_train, y=y_train_ones, method=neural_network, params=params,
+                            loss_function=zero_one_loss_multiple, nfolds=5, nrepetitions=1, roc_f=False,
+                            verbose=True)
+
+        # Compute error on the test set
+        y_te_pred = torch.as_tensor(best_model.predict(X_te))
+        loss_acc = zero_one_loss_multiple(y_pred=y_te_pred, y_true=y_test_ones)
+        loss_test = cross_entropy_loss(ypred=y_te_pred, ytrue=y_test_ones)
+
+        print('Best Model Test loss: {}'.format(loss_test))
+        print('Best Model Test acuracy: {}'.format(1 - loss_acc))
+
+        # Plot weight vectors
+        fig, axes = plt.subplots(10, 10)
+        # weigths global min / max -> all images on the same scale
+        vmin, vmax = float(best_model.weights[0].min()), float(best_model.weights[0].max())
+
+        weights_first_layer = best_model.weights[0].data.numpy()
+
+        for coef, ax in zip(weights_first_layer.T, axes.ravel()):
+            ax.matshow(coef.reshape(28, 28), cmap=plt.cm.gray, vmin=.5 * vmin,
+                       vmax=.5 * vmax)
+            ax.set_xticks(())
+            ax.set_yticks(())
+
+        plt.show()
+
+    if svm:
+        # One vs rest classification
+        cur_digits = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+        # cur_digits = [0]
+        y_train_np = y_train.data.numpy()
+        X_train_np = X_train.data.numpy()
+        X_test_np = X_te.data.numpy()
+        y_test_np = y_te.data.numpy()
+
+        X_train_np = X_train_np[:, :]
+        y_train_np = y_train_np[:]
+
+        for index, cur_digit in enumerate(cur_digits):
+            y_train_cur = y_train_np.copy()
+            y_test_cur = y_test_np.copy()
+
+            y_train_cur[y_train_np == cur_digit] = 1
+
+            y_train_cur[y_train_np != cur_digit] = -1
+
+            y_test_cur[y_te == cur_digit] = 1
+            y_test_cur[y_te != cur_digit] = -1
+
+            # svm_model = svm_qp(kernel='poly', kernelparameter=3, C= 0.001)
+            # params = {'kernel': ['poly'], 'kernelparameter':[2, 3, 4], 'C': np.log(-2,2,5)}
+            # best_model = imp.cv(X=X_train, y=y_train_ones, method=imp.svm_sklearn, params=params,
+            #                    loss_function=imp.zero_one_loss_multiple, nfolds=5, nrepetitions=1, roc_f=False,
+            #                    verbose=True)
+
+            svm_model = svm_sklearn(kernel='poly', kernelparameter=3, C=0.001)
+            svm_model.fit(X_train_np, y_train_cur)
+            # print(svm_model.X_sv.shape)
+            # print('fit ready')
+            y_pred_tr = svm_model.predict(X_train_np)
+            y_pred_test = svm_model.predict(X_test_np)
+
+            print(len(np.argwhere(np.sign(y_pred_test) == -1)))
+            # Compute accuracy on train and test data
+            accuracy_train = 1 - zero_one_loss(y_pred=np.sign(y_pred_tr), y_true=y_train_cur)
+
+            accuracy_test = 1 - zero_one_loss(y_pred=np.sign(y_pred_test), y_true=y_test_cur)
+
+            # Compute true pos rate
+            pos_all = len(np.argwhere(y_test_cur == 1))
+            true_pos = len(np.argwhere(y_test_cur[y_test_cur == 1] * np.sign(y_pred_test[y_test_cur == 1]) == 1))
+            true_pos_rate = true_pos / pos_all
+
+            print('Cur Digit: {}'.format(cur_digit))
+            print('True Pos Rate in percentage: {}'.format(true_pos_rate))
+            print('One vs Rest SVM Classification for digit: {}'.format(cur_digit))
+            print('Train Accuracy: {}, Test Accuracy: {}'.format(accuracy_train, accuracy_test))
+
+            # SAVE MODEL
+            filename = 'finalized_model_svm_digit_' + str(cur_digit) + '.sav'
+            pickle.dump(svm_model, open(filename, 'wb'))
+
+            # plot 5 random support vectors for each class == 10 figures per digit
+            X_sv = svm_model.X_sv.T
+            y_sv = svm_model.y_sv
+            # Randomly choose 5 support vectors for each class
+            X_sv_pos = X_sv[:, y_sv == 1]
+            X_sv_neg = X_sv[:, y_sv == -1]
+
+            indexes_pos = np.random.choice(np.arange(X_sv_pos.shape[1]), 5, replace=False)
+            indexes_neg = np.random.choice(np.arange(X_sv_neg.shape[1]), 5, replace=False)
+
+            X_random_pos = X_sv_pos[:, indexes_pos]  # dx5 array
+            X_random_neg = X_sv_neg[:, indexes_neg]  # dx5 array
+
+            if X_sv.shape[1] >= 2:
+                fig, axes = plt.subplots(1, 5)
+                for coef, ax in zip(X_random_pos.T, axes.ravel()):
+                    ax.matshow(coef.reshape(28, 28), cmap=plt.cm.gray)
+                    ax.set_xticks(())
+                    ax.set_yticks(())
+
+            print('-------')
+            fig.savefig(fname='digit_' + str(cur_digit) + '_pos_class')
+
+            if X_sv.shape[1] >= 2:
+                fig, axes = plt.subplots(1, 5)
+                for coef, ax in zip(X_random_neg.T, axes.ravel()):
+                    ax.matshow(coef.reshape(28, 28), cmap=plt.cm.gray)
+                    ax.set_xticks(())
+                    ax.set_yticks(())
+
+            print('-------')
+            fig.savefig(fname='digit_' + str(cur_digit) + '_neg_class')
+
+    if apply_svm:
+        X_test_np = X_te.data.numpy()
+        y_test_np = y_te.data.numpy()
+
+        y_train_np = y_train.data.numpy()
+        X_train_np = X_train.data.numpy()
+
+        models = {}
+        # load models
+        for digit_model in range(10):
+            with open(
+                    r'/Users/albertorodriguez/Desktop/Current Courses/ML_Lab/4 Topic/problem_set4/stubs/finalized_model_svm_digit_' + str(
+                            digit_model) + '.sav', 'rb') as f:
+                models['model_' + str(digit_model)] = pickle.load(f)
+
+        # Init results matrix Y_pred
+        Y_pred_test = np.zeros((X_test_np.shape[0], 10))
+        Y_pred_train = np.zeros((X_train_np.shape[0], 10))
+
+        for digit, model_cur in enumerate(models):
+            print(model_cur)
+            m = models[model_cur]
+            Y_pred_test[:, digit] = m.predict(X_test_np)
+            Y_pred_train[:, digit] = m.predict(X_train_np)
+
+        # Convert to pred numbers
+        y_pred_test_numbers = np.argmax(Y_pred_test, axis=1)
+        y_pred_train_numbers = np.argmax(Y_pred_train, axis=1)
+
+        test_acc = np.argwhere(y_pred_test_numbers - y_test_np == 0) / X_test_np.shape[0] * 100
+        train_acc = np.argwhere(y_pred_train_numbers - y_train_np == 0) / X_train_np.shape[0] * 100
+
+        print('Accuracy on the Training data: {}'.format(train_acc))
+        print('Accuracy on the Test data: {}'.format(test_acc))
+
 if __name__ == '__main__':
     print('Main')
     #Assignment4()
     #Assignment5()
+    #Assignment6()
